@@ -205,3 +205,12 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+/.idea/OrchestraAI.iml
+/.idea/misc.xml
+/.idea/.gitignore
+/.idea/codelinkSonar.xml
+/.idea/inspectionProfiles/Project_Default.xml
+/.idea/inspectionProfiles/profiles_settings.xml
+/.idea/mcp_available.json
+/.idea/modules.xml
+/.idea/vcs.xml
