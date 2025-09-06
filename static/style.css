@@ -92,6 +92,36 @@ body {
     grid-template-columns: repeat(6, 1fr);
     gap: 1rem;
     height: 100%;
+    transition: grid-template-columns 0.3s ease;
+}
+
+/* 当有活跃列时的布局 */
+.columns-container.has-active {
+    grid-template-columns: 1fr 1fr 2fr 1fr 1fr 1fr;
+}
+
+.columns-container.has-active[data-active="human"] {
+    grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr;
+}
+
+.columns-container.has-active[data-active="ether"] {
+    grid-template-columns: 1fr 2fr 1fr 1fr 1fr 1fr;
+}
+
+.columns-container.has-active[data-active="product_ai"] {
+    grid-template-columns: 1fr 1fr 2fr 1fr 1fr 1fr;
+}
+
+.columns-container.has-active[data-active="architect_ai"] {
+    grid-template-columns: 1fr 1fr 1fr 2fr 1fr 1fr;
+}
+
+.columns-container.has-active[data-active="interface_ai"] {
+    grid-template-columns: 1fr 1fr 1fr 1fr 2fr 1fr;
+}
+
+.columns-container.has-active[data-active="programmer_ai"] {
+    grid-template-columns: 1fr 1fr 1fr 1fr 1fr 2fr;
 }
 
 /* 列样式 */
@@ -104,6 +134,29 @@ body {
     overflow: hidden;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
     border: 1px solid rgba(255, 255, 255, 0.2);
+    transition: all 0.3s ease;
+}
+
+.column.active {
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: 0 8px 30px rgba(79, 70, 229, 0.2);
+    border: 2px solid rgba(79, 70, 229, 0.3);
+    transform: scale(1.01);
+}
+
+.column.recently-active {
+    animation: recentActivity 2s ease-out;
+}
+
+@keyframes recentActivity {
+    0% { 
+        box-shadow: 0 8px 30px rgba(79, 70, 229, 0.4);
+        border-color: rgba(79, 70, 229, 0.5);
+    }
+    100% { 
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        border-color: rgba(255, 255, 255, 0.2);
+    }
 }
 
 .column-header {

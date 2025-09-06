@@ -11,6 +11,9 @@ class OrchestraAI {
             interface_ai: 0,
             programmer_ai: 0
         };
+        this.activeColumn = null;
+        this.lastActivityTime = {};
+        this.activityTimeout = null;
         
         this.init();
     }
@@ -112,6 +115,16 @@ class OrchestraAI {
         document.getElementById('model-select').addEventListener('change', (e) => {
             this.selectModel(e.target.value);
         });
+        
+        // 列点击事件 - 手动设置活跃列
+        document.querySelectorAll('.column').forEach(column => {
+            column.addEventListener('click', (e) => {
+                const role = column.getAttribute('data-role');
+                if (role && this.activeColumn !== role) {
+                    this.setActiveColumn(role);
+                }
+            });
+        });
     }
     
     setupUI() {
@@ -143,6 +156,9 @@ class OrchestraAI {
         
         // 更新消息计数
         this.updateMessageCount(messageData.role);
+        
+        // 设置活跃列
+        this.setActiveColumn(messageData.role);
         
         // 更新时间线视图（如果打开）
         if (!document.getElementById('timeline-view').classList.contains('hidden')) {
@@ -448,6 +464,66 @@ class OrchestraAI {
                 document.body.removeChild(notification);
             }, 300);
         }, 3000);
+    }
+    
+    setActiveColumn(role) {
+        const currentTime = Date.now();
+        this.lastActivityTime[role] = currentTime;
+        
+        // 清除之前的超时
+        if (this.activityTimeout) {
+            clearTimeout(this.activityTimeout);
+        }
+        
+        // 更新活跃列
+        this.activeColumn = role;
+        this.updateColumnLayout();
+        
+        // 添加最近活跃动画
+        const column = document.querySelector(`[data-role="${role}"]`);
+        if (column) {
+            column.classList.add('recently-active');
+            setTimeout(() => {
+                column.classList.remove('recently-active');
+            }, 2000);
+        }
+        
+        // 设置5秒后重置活跃状态
+        this.activityTimeout = setTimeout(() => {
+            this.resetActiveColumn();
+        }, 5000);
+    }
+    
+    resetActiveColumn() {
+        this.activeColumn = null;
+        this.updateColumnLayout();
+        
+        // 移除所有列的活跃状态
+        document.querySelectorAll('.column').forEach(column => {
+            column.classList.remove('active');
+        });
+    }
+    
+    updateColumnLayout() {
+        const container = document.querySelector('.columns-container');
+        
+        if (this.activeColumn) {
+            container.classList.add('has-active');
+            container.setAttribute('data-active', this.activeColumn);
+            
+            // 为活跃列添加样式
+            document.querySelectorAll('.column').forEach(column => {
+                column.classList.remove('active');
+            });
+            
+            const activeColumnElement = document.querySelector(`[data-role="${this.activeColumn}"]`);
+            if (activeColumnElement) {
+                activeColumnElement.classList.add('active');
+            }
+        } else {
+            container.classList.remove('has-active');
+            container.removeAttribute('data-active');
+        }
     }
 }
 
