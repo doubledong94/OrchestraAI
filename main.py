@@ -11,8 +11,20 @@ import os
 from datetime import datetime
 import uuid
 from enum import Enum
+import logging
 
 app = FastAPI(title="OrchestraAI", description="Multi-AI Collaboration Platform")
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('orchestra_ai.log')
+    ]
+)
+logger = logging.getLogger(__name__)
 
 app.add_middleware(
     CORSMiddleware,
@@ -159,6 +171,8 @@ async def broadcast_message(message: Message):
         orchestra_state.websocket_connections.remove(ws)
 
 async def handle_human_input(content: str):
+    logger.info(f"收到人类输入: {content[:100]}{'...' if len(content) > 100 else ''}")
+    
     message = Message(
         id=str(uuid.uuid4()),
         role=RoleType.HUMAN,
@@ -170,8 +184,10 @@ async def handle_human_input(content: str):
     await broadcast_message(message)
     
     if not orchestra_state.requirement_confirmed:
+        logger.info("需求尚未确认，触发产品AI分析")
         await trigger_product_ai(content)
     else:
+        logger.info("需求已确认，处理确认后的输入")
         await handle_confirmed_requirement_input(content)
 
 async def handle_human_interrupt(content: str):
@@ -186,6 +202,8 @@ async def handle_human_interrupt(content: str):
     await broadcast_message(message)
 
 async def trigger_product_ai(user_input: str):
+    logger.info(f"触发产品AI分析用户需求: {user_input[:50]}{'...' if len(user_input) > 50 else ''}")
+    
     prompt = f"""
 {AI_PROMPTS[RoleType.PRODUCT_AI]}
 
@@ -196,6 +214,7 @@ async def trigger_product_ai(user_input: str):
     
     response = await call_ollama_api(prompt, RoleType.PRODUCT_AI)
     if response:
+        logger.info(f"产品AI响应生成成功，长度: {len(response)}字符")
         message = Message(
             id=str(uuid.uuid4()),
             role=RoleType.PRODUCT_AI,
@@ -204,8 +223,12 @@ async def trigger_product_ai(user_input: str):
             timestamp=datetime.now()
         )
         await broadcast_message(message)
+    else:
+        logger.error("产品AI响应生成失败")
 
 async def trigger_architect_ai(requirement: str):
+    logger.info(f"触发架构AI设计技术方案: {requirement[:50]}{'...' if len(requirement) > 50 else ''}")
+    
     prompt = f"""
 {AI_PROMPTS[RoleType.ARCHITECT_AI]}
 
@@ -220,6 +243,7 @@ async def trigger_architect_ai(requirement: str):
     
     response = await call_ollama_api(prompt, RoleType.ARCHITECT_AI)
     if response:
+        logger.info(f"架构AI方案设计成功，长度: {len(response)}字符")
         message = Message(
             id=str(uuid.uuid4()),
             role=RoleType.ARCHITECT_AI,
@@ -228,8 +252,13 @@ async def trigger_architect_ai(requirement: str):
             timestamp=datetime.now()
         )
         await broadcast_message(message)
+    else:
+        logger.error("架构AI方案设计失败")
 
 async def call_ollama_api(prompt: str, role: RoleType) -> Optional[str]:
+    request_id = str(uuid.uuid4())[:8]
+    logger.info(f"[{request_id}] 开始Ollama API调用 - 角色: {role.value}, 模型: {orchestra_state.selected_model}")
+    
     try:
         ether_message = Message(
             id=str(uuid.uuid4()),
@@ -240,6 +269,15 @@ async def call_ollama_api(prompt: str, role: RoleType) -> Optional[str]:
         )
         await broadcast_message(ether_message)
         
+        # 记录请求详情
+        request_data = {
+            "model": orchestra_state.selected_model,
+            "prompt": prompt[:200] + "..." if len(prompt) > 200 else prompt,  # 截断长提示
+            "stream": False
+        }
+        logger.info(f"[{request_id}] 请求数据: {json.dumps(request_data, ensure_ascii=False, indent=2)}")
+        
+        start_time = datetime.now()
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 "http://localhost:11434/api/generate",
@@ -251,11 +289,29 @@ async def call_ollama_api(prompt: str, role: RoleType) -> Optional[str]:
                 timeout=60.0
             )
             
+            duration = (datetime.now() - start_time).total_seconds()
+            logger.info(f"[{request_id}] API调用耗时: {duration:.2f}秒")
+            
             if response.status_code == 200:
                 result = response.json()
-                return result.get("response", "")
+                response_text = result.get("response", "")
+                
+                # 记录响应详情
+                logger.info(f"[{request_id}] 响应成功 - 长度: {len(response_text)}字符")
+                logger.info(f"[{request_id}] 响应内容预览: {response_text[:300]}{'...' if len(response_text) > 300 else ''}")
+                
+                # 记录额外的响应信息
+                if 'eval_count' in result:
+                    logger.info(f"[{request_id}] Token统计 - 输出: {result.get('eval_count', 0)}, 输入: {result.get('prompt_eval_count', 0)}")
+                if 'total_duration' in result:
+                    total_duration_sec = result['total_duration'] / 1e9
+                    logger.info(f"[{request_id}] 总处理时间: {total_duration_sec:.2f}秒")
+                
+                return response_text
             else:
                 error_msg = f"Ollama API调用失败: {response.status_code}"
+                logger.error(f"[{request_id}] {error_msg} - 响应内容: {response.text}")
+                
                 error_message = Message(
                     id=str(uuid.uuid4()),
                     role=RoleType.ETHER,
@@ -268,6 +324,8 @@ async def call_ollama_api(prompt: str, role: RoleType) -> Optional[str]:
                 
     except Exception as e:
         error_msg = f"调用Ollama API时发生错误: {str(e)}"
+        logger.error(f"[{request_id}] {error_msg}", exc_info=True)
+        
         error_message = Message(
             id=str(uuid.uuid4()),
             role=RoleType.ETHER,
@@ -330,16 +388,24 @@ async def save_code_endpoint(filename: str, content: str):
 
 @app.get("/api/models")
 async def get_available_models():
+    logger.info("正在获取可用的Ollama模型列表")
     try:
+        start_time = datetime.now()
         async with httpx.AsyncClient() as client:
             response = await client.get("http://localhost:11434/api/tags", timeout=10.0)
+            duration = (datetime.now() - start_time).total_seconds()
+            
             if response.status_code == 200:
                 data = response.json()
                 models = [model["name"] for model in data.get("models", [])]
+                logger.info(f"成功获取模型列表 (耗时 {duration:.2f}秒): {models}")
+                logger.info(f"当前选中模型: {orchestra_state.selected_model}")
                 return {"models": models, "selected": orchestra_state.selected_model}
             else:
+                logger.error(f"获取模型列表失败 - HTTP {response.status_code}: {response.text}")
                 return {"models": ["llama3.1:8b"], "selected": orchestra_state.selected_model, "error": "Failed to fetch models"}
     except Exception as e:
+        logger.error(f"获取模型列表时发生错误: {str(e)}", exc_info=True)
         return {"models": ["llama3.1:8b"], "selected": orchestra_state.selected_model, "error": str(e)}
 
 class ModelSelection(BaseModel):
@@ -347,8 +413,16 @@ class ModelSelection(BaseModel):
 
 @app.post("/api/select_model")
 async def select_model(model_data: ModelSelection):
-    orchestra_state.selected_model = model_data.model_name
-    return {"status": "success", "selected_model": model_data.model_name}
+    old_model = orchestra_state.selected_model
+    new_model = model_data.model_name
+    
+    logger.info(f"模型切换请求: {old_model} -> {new_model}")
+    
+    orchestra_state.selected_model = new_model
+    
+    logger.info(f"模型已成功切换为: {new_model}")
+    
+    return {"status": "success", "selected_model": new_model}
 
 @app.get("/")
 async def serve_frontend():
@@ -358,4 +432,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 if __name__ == "__main__":
     import uvicorn
+    logger.info("启动OrchestraAI多AI协作平台")
+    logger.info(f"默认选择模型: {orchestra_state.selected_model}")
+    logger.info("服务器将在 http://0.0.0.0:8000 启动")
     uvicorn.run(app, host="0.0.0.0", port=8000)
