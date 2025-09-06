@@ -221,7 +221,15 @@ class OrchestraAI {
         
         const contentDiv = document.createElement('div');
         contentDiv.className = 'message-content';
-        contentDiv.textContent = messageData.content;
+        
+        // 检查是否为AI生成的消息（非human角色）且内容包含markdown标记
+        if (messageData.role !== 'human' && this.containsMarkdown(messageData.content)) {
+            // 渲染markdown内容
+            contentDiv.innerHTML = marked.parse(messageData.content);
+        } else {
+            // 普通文本内容
+            contentDiv.textContent = messageData.content;
+        }
         
         const timestampDiv = document.createElement('div');
         timestampDiv.className = 'message-timestamp';
@@ -231,6 +239,25 @@ class OrchestraAI {
         messageDiv.appendChild(timestampDiv);
         
         return messageDiv;
+    }
+    
+    containsMarkdown(text) {
+        // 检查文本是否包含常见的markdown标记
+        const markdownPatterns = [
+            /^#{1,6}\s/m,           // 标题
+            /\*\*.*?\*\*/,          // 粗体
+            /\*.*?\*/,              // 斜体
+            /`.*?`/,                // 行内代码
+            /```[\s\S]*?```/,       // 代码块
+            /^\s*[-*+]\s/m,         // 列表
+            /^\s*\d+\.\s/m,         // 有序列表
+            /\[.*?\]\(.*?\)/,       // 链接
+            /^\s*>\s/m,             // 引用
+            /^\s*\|.*\|/m,          // 表格
+            /---+/,                 // 分割线
+        ];
+        
+        return markdownPatterns.some(pattern => pattern.test(text));
     }
     
     updateMessageCount(role) {
@@ -321,7 +348,15 @@ class OrchestraAI {
         
         const contentDiv = document.createElement('div');
         contentDiv.className = 'timeline-message-content';
-        contentDiv.textContent = messageData.content;
+        
+        // 检查是否为AI生成的消息（非human角色）且内容包含markdown标记
+        if (messageData.role !== 'human' && this.containsMarkdown(messageData.content)) {
+            // 渲染markdown内容
+            contentDiv.innerHTML = marked.parse(messageData.content);
+        } else {
+            // 普通文本内容
+            contentDiv.textContent = messageData.content;
+        }
         
         const timeDiv = document.createElement('div');
         timeDiv.className = 'timeline-message-time';
@@ -725,6 +760,196 @@ style.textContent = `
             transform: translateX(100%);
             opacity: 0;
         }
+    }
+    
+    /* Markdown content styles */
+    .message-content h1,
+    .message-content h2,
+    .message-content h3,
+    .message-content h4,
+    .message-content h5,
+    .message-content h6 {
+        margin: 10px 0 5px 0;
+        color: #1f2937;
+        font-weight: 600;
+    }
+    
+    .message-content h1 { font-size: 1.5em; }
+    .message-content h2 { font-size: 1.3em; }
+    .message-content h3 { font-size: 1.2em; }
+    .message-content h4 { font-size: 1.1em; }
+    .message-content h5 { font-size: 1em; }
+    .message-content h6 { font-size: 0.9em; }
+    
+    .message-content p {
+        margin: 8px 0;
+        line-height: 1.5;
+    }
+    
+    .message-content code {
+        background: #f3f4f6;
+        padding: 2px 4px;
+        border-radius: 3px;
+        font-family: 'Courier New', Courier, monospace;
+        font-size: 0.9em;
+        color: #dc2626;
+    }
+    
+    .message-content pre {
+        background: #1f2937;
+        color: #f9fafb;
+        padding: 12px;
+        border-radius: 6px;
+        overflow-x: auto;
+        margin: 10px 0;
+        font-family: 'Courier New', Courier, monospace;
+        font-size: 0.9em;
+        line-height: 1.4;
+    }
+    
+    .message-content pre code {
+        background: none;
+        padding: 0;
+        color: inherit;
+        font-size: inherit;
+    }
+    
+    .message-content blockquote {
+        border-left: 4px solid #6b7280;
+        margin: 10px 0;
+        padding: 8px 16px;
+        background: #f9fafb;
+        font-style: italic;
+        color: #4b5563;
+    }
+    
+    .message-content ul,
+    .message-content ol {
+        margin: 8px 0;
+        padding-left: 20px;
+    }
+    
+    .message-content li {
+        margin: 4px 0;
+        line-height: 1.4;
+    }
+    
+    .message-content table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 10px 0;
+        font-size: 0.9em;
+    }
+    
+    .message-content th,
+    .message-content td {
+        border: 1px solid #d1d5db;
+        padding: 8px 12px;
+        text-align: left;
+    }
+    
+    .message-content th {
+        background: #f3f4f6;
+        font-weight: 600;
+    }
+    
+    .message-content hr {
+        border: none;
+        border-top: 2px solid #e5e7eb;
+        margin: 15px 0;
+    }
+    
+    .message-content a {
+        color: #4f46e5;
+        text-decoration: none;
+    }
+    
+    .message-content a:hover {
+        text-decoration: underline;
+    }
+    
+    .message-content strong {
+        font-weight: 600;
+        color: #1f2937;
+    }
+    
+    .message-content em {
+        font-style: italic;
+        color: #4b5563;
+    }
+    
+    /* Timeline message markdown styles */
+    .timeline-message-content h1,
+    .timeline-message-content h2,
+    .timeline-message-content h3,
+    .timeline-message-content h4,
+    .timeline-message-content h5,
+    .timeline-message-content h6 {
+        margin: 8px 0 4px 0;
+        color: #1f2937;
+        font-weight: 600;
+    }
+    
+    .timeline-message-content h1 { font-size: 1.3em; }
+    .timeline-message-content h2 { font-size: 1.2em; }
+    .timeline-message-content h3 { font-size: 1.1em; }
+    .timeline-message-content h4 { font-size: 1em; }
+    .timeline-message-content h5 { font-size: 0.95em; }
+    .timeline-message-content h6 { font-size: 0.9em; }
+    
+    .timeline-message-content p {
+        margin: 6px 0;
+        line-height: 1.4;
+    }
+    
+    .timeline-message-content code {
+        background: #f3f4f6;
+        padding: 1px 3px;
+        border-radius: 2px;
+        font-family: 'Courier New', Courier, monospace;
+        font-size: 0.85em;
+        color: #dc2626;
+    }
+    
+    .timeline-message-content pre {
+        background: #1f2937;
+        color: #f9fafb;
+        padding: 8px;
+        border-radius: 4px;
+        overflow-x: auto;
+        margin: 8px 0;
+        font-family: 'Courier New', Courier, monospace;
+        font-size: 0.8em;
+        line-height: 1.3;
+    }
+    
+    .timeline-message-content pre code {
+        background: none;
+        padding: 0;
+        color: inherit;
+        font-size: inherit;
+    }
+    
+    .timeline-message-content blockquote {
+        border-left: 3px solid #6b7280;
+        margin: 6px 0;
+        padding: 6px 12px;
+        background: #f9fafb;
+        font-style: italic;
+        color: #4b5563;
+        font-size: 0.9em;
+    }
+    
+    .timeline-message-content ul,
+    .timeline-message-content ol {
+        margin: 6px 0;
+        padding-left: 16px;
+    }
+    
+    .timeline-message-content li {
+        margin: 2px 0;
+        line-height: 1.3;
+        font-size: 0.9em;
     }
 `;
 document.head.appendChild(style);
