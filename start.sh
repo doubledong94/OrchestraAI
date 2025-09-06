@@ -9,11 +9,15 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
-# 检查pip
-if ! command -v pip &> /dev/null; then
-    echo "❌ pip 未安装，请先安装pip"
-    exit 1
+# 创建虚拟环境（如果不存在）
+if [ ! -d "venv" ]; then
+    echo "🔧 创建Python虚拟环境..."
+    python3 -m venv venv
 fi
+
+# 激活虚拟环境
+echo "🔌 激活虚拟环境..."
+source venv/bin/activate
 
 # 安装依赖
 echo "📦 安装Python依赖..."
@@ -41,4 +45,4 @@ echo "访问地址: http://localhost:8000"
 echo "按 Ctrl+C 停止服务"
 echo ""
 
-python3 main.py
+python main.py
