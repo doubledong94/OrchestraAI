@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OrchestraAI - 多AI协作平台</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>🎼 OrchestraAI 多AI协作平台</h1>
+            <div class="status-bar">
+                <span id="connection-status" class="status disconnected">断开连接</span>
+                <button id="interrupt-btn" class="interrupt-btn" disabled>🛑 紧急打断</button>
+            </div>
+        </header>
+        
+        <main class="main-content">
+            <div class="columns-container">
+                <!-- 人类列 -->
+                <div class="column" data-role="human">
+                    <div class="column-header">
+                        <h3>👤 人类</h3>
+                        <span class="message-count">0</span>
+                    </div>
+                    <div class="messages-container" id="messages-human">
+                        <!-- 消息将在这里显示 -->
+                    </div>
+                    <div class="input-container">
+                        <textarea id="human-input" placeholder="输入您的需求或问题..." rows="3"></textarea>
+                        <button id="send-btn" disabled>发送</button>
+                    </div>
+                </div>
+                
+                <!-- 以太列 -->
+                <div class="column" data-role="ether">
+                    <div class="column-header">
+                        <h3>⚡ 以太</h3>
+                        <span class="message-count">0</span>
+                    </div>
+                    <div class="messages-container" id="messages-ether">
+                        <!-- 系统消息将在这里显示 -->
+                    </div>
+                </div>
+                
+                <!-- 产品AI列 -->
+                <div class="column" data-role="product_ai">
+                    <div class="column-header">
+                        <h3>🎯 产品AI</h3>
+                        <span class="message-count">0</span>
+                    </div>
+                    <div class="messages-container" id="messages-product_ai">
+                        <!-- 产品AI消息将在这里显示 -->
+                    </div>
+                </div>
+                
+                <!-- 架构AI列 -->
+                <div class="column" data-role="architect_ai">
+                    <div class="column-header">
+                        <h3>🏗️ 架构AI</h3>
+                        <span class="message-count">0</span>
+                    </div>
+                    <div class="messages-container" id="messages-architect_ai">
+                        <!-- 架构AI消息将在这里显示 -->
+                    </div>
+                </div>
+                
+                <!-- 接口AI列 -->
+                <div class="column" data-role="interface_ai">
+                    <div class="column-header">
+                        <h3>🔌 接口AI</h3>
+                        <span class="message-count">0</span>
+                    </div>
+                    <div class="messages-container" id="messages-interface_ai">
+                        <!-- 接口AI消息将在这里显示 -->
+                    </div>
+                </div>
+                
+                <!-- 程序员AI列 -->
+                <div class="column" data-role="programmer_ai">
+                    <div class="column-header">
+                        <h3>💻 程序员AI</h3>
+                        <span class="message-count">0</span>
+                    </div>
+                    <div class="messages-container" id="messages-programmer_ai">
+                        <!-- 程序员AI消息将在这里显示 -->
+                    </div>
+                </div>
+            </div>
+        </main>
+        
+        <!-- 全局时间线视图 -->
+        <div class="timeline-container">
+            <button id="timeline-toggle">📊 时间线视图</button>
+            <div id="timeline-view" class="timeline-view hidden">
+                <div class="timeline-header">
+                    <h3>🕒 全局消息时间线</h3>
+                    <button id="timeline-close">✕</button>
+                </div>
+                <div id="timeline-messages" class="timeline-messages">
+                    <!-- 按时间排序的所有消息 -->
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 打断模态框 -->
+    <div id="interrupt-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>🛑 紧急打断AI协作</h3>
+            <textarea id="interrupt-input" placeholder="请描述您要进行的干预或指导..." rows="4"></textarea>
+            <div class="modal-buttons">
+                <button id="interrupt-confirm" class="btn-danger">确认打断</button>
+                <button id="interrupt-cancel" class="btn-secondary">取消</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/static/script.js"></script>
+</body>
+</html>

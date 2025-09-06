@@ -214,3 +214,6 @@ __marimo__/
 /.idea/mcp_available.json
 /.idea/modules.xml
 /.idea/vcs.xml
+/node_modules/
+/package.json
+/package-lock.json
