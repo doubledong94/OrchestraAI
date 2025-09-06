@@ -513,11 +513,6 @@ class OrchestraAI {
                 column.classList.remove('recently-active');
             }, 2000);
         }
-        
-        // 设置5秒后重置活跃状态
-        this.activityTimeout = setTimeout(() => {
-            this.resetActiveColumn();
-        }, 5000);
     }
     
     resetActiveColumn() {

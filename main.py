@@ -84,91 +84,173 @@ class OrchestraState:
         self.selected_model: str = "llama3.1:8b"
         self.max_context_messages: int = 20  # 最大上下文消息数量
         self.max_context_length: int = 8000  # 最大上下文字符长度
+        self.conversation_summaries: Dict[str, str] = {}  # 各阶段的对话总结
+        self.summary_trigger_count: int = 10  # 每10条消息触发一次总结
     
     def get_context_for_role(self, role: RoleType, max_messages: Optional[int] = None) -> str:
-        """获取特定角色的对话上下文"""
+        """获取特定角色的对话上下文（基于AI总结）"""
         if max_messages is None:
             max_messages = self.max_context_messages
-            
-        # 获取最近的相关消息
+        
+        context_parts = []
+        
+        # 1. 添加所有历史总结（已经是精炼的关键信息）
+        if self.conversation_summaries:
+            context_parts.append("=== 历史对话总结 ===")
+            for i, (summary_key, summary_content) in enumerate(self.conversation_summaries.items(), 1):
+                context_parts.append(f"总结{i}: {summary_content}")
+            context_parts.append("=== 当前对话 ===")
+        
+        # 2. 获取当前对话段落的消息（自最后一次总结后的消息）
+        current_conversation_messages = self.get_current_conversation_messages_for_role(role)
+        
+        # 如果当前对话消息较少，直接全部添加
+        if len(current_conversation_messages) <= max_messages:
+            for msg in current_conversation_messages:
+                role_name = self.get_role_display_name(msg.role)
+                timestamp = msg.timestamp.strftime("%H:%M:%S")
+                message_part = f"[{timestamp}] {role_name}: {msg.content}"
+                context_parts.append(message_part)
+        else:
+            # 如果当前对话消息过多，只保留最重要的消息
+            important_messages = self.filter_important_messages_for_role(current_conversation_messages, role, max_messages)
+            for msg in important_messages:
+                role_name = self.get_role_display_name(msg.role)
+                timestamp = msg.timestamp.strftime("%H:%M:%S")
+                message_part = f"[{timestamp}] {role_name}: {msg.content}"
+                context_parts.append(message_part)
+        
+        context = "\n".join(context_parts)
+        logger.info(f"为角色 {role.value} 生成上下文，总结数: {len(self.conversation_summaries)}, 当前消息数: {len(current_conversation_messages)}, 上下文长度: {len(context)}")
+        
+        return context
+    
+    def get_current_conversation_messages_for_role(self, role: RoleType) -> List[Message]:
+        """获取当前对话段落的消息（自最后一次总结后）"""
+        if not self.conversation_summaries:
+            # 如果没有总结，返回所有消息
+            return self.get_recent_messages_for_role(role, len(self.messages))
+        
+        # 找到最后一次总结后的消息
+        last_summary_time = None
+        if self.conversation_summaries:
+            # 寻找最后一个总结生成时间的标记
+            for msg in reversed(self.messages):
+                if (msg.role == RoleType.ETHER and 
+                    msg.message_type == MessageType.SYSTEM_INFO and
+                    "已生成对话总结" in msg.content):
+                    last_summary_time = msg.timestamp
+                    break
+        
+        if last_summary_time:
+            # 返回最后总结时间之后的消息
+            current_messages = []
+            for msg in self.messages:
+                if msg.timestamp > last_summary_time:
+                    current_messages.append(msg)
+            return self.filter_messages_by_role_relevance(current_messages, role)
+        else:
+            # 如果没找到总结时间标记，返回最近的消息
+            return self.get_recent_messages_for_role(role, self.max_context_messages)
+    
+    def filter_important_messages_for_role(self, messages: List[Message], role: RoleType, max_count: int) -> List[Message]:
+        """筛选角色相关的重要消息"""
+        # 按重要性排序：用户输入 > AI回复 > 系统消息 > 错误消息
+        importance_order = {
+            MessageType.USER_INPUT: 1,
+            MessageType.AI_RESPONSE: 2,
+            MessageType.SYSTEM_INFO: 3,
+            MessageType.ERROR: 4,
+            MessageType.FILE_SAVED: 5
+        }
+        
+        role_messages = self.filter_messages_by_role_relevance(messages, role)
+        
+        # 按重要性和时间排序
+        sorted_messages = sorted(role_messages, 
+                               key=lambda x: (importance_order.get(x.message_type, 10), -x.timestamp.timestamp()))
+        
+        return sorted_messages[:max_count]
+    
+    def filter_messages_by_role_relevance(self, messages: List[Message], role: RoleType) -> List[Message]:
+        """根据角色相关性过滤消息"""
+        if role == RoleType.PRODUCT_AI:
+            return [msg for msg in messages if msg.role in [RoleType.HUMAN, RoleType.PRODUCT_AI, RoleType.ETHER]]
+        elif role == RoleType.ARCHITECT_AI:
+            return [msg for msg in messages if msg.role in [RoleType.HUMAN, RoleType.PRODUCT_AI, RoleType.ARCHITECT_AI, RoleType.ETHER]]
+        elif role == RoleType.INTERFACE_AI:
+            return [msg for msg in messages if msg.role in [RoleType.HUMAN, RoleType.PRODUCT_AI, RoleType.ARCHITECT_AI, RoleType.INTERFACE_AI, RoleType.ETHER]]
+        elif role == RoleType.PROGRAMMER_AI:
+            return [msg for msg in messages if msg.message_type != MessageType.SYSTEM_INFO or msg.role == RoleType.ETHER]
+        else:
+            return messages
+
+    def get_recent_messages_for_role(self, role: RoleType, max_count: int) -> List[Message]:
+        """获取角色相关的最近消息"""
         relevant_messages = []
         
-        # 根据角色类型选择不同的上下文策略
+        # 根据角色类型选择不同的消息范围
         if role == RoleType.PRODUCT_AI:
             # 产品AI需要看到：人类输入 + 自己的历史回复
-            for msg in self.messages[-max_messages:]:
+            for msg in reversed(self.messages):
                 if (msg.role == RoleType.HUMAN or 
                     msg.role == RoleType.PRODUCT_AI):
-                    relevant_messages.append(msg)
+                    relevant_messages.insert(0, msg)
+                if len(relevant_messages) >= max_count:
+                    break
                     
         elif role == RoleType.ARCHITECT_AI:
             # 架构AI需要看到：人类输入 + 产品AI的分析 + 自己的历史回复
-            for msg in self.messages[-max_messages:]:
+            for msg in reversed(self.messages):
                 if (msg.role == RoleType.HUMAN or 
                     msg.role == RoleType.PRODUCT_AI or
                     msg.role == RoleType.ARCHITECT_AI):
-                    relevant_messages.append(msg)
+                    relevant_messages.insert(0, msg)
+                if len(relevant_messages) >= max_count:
+                    break
                     
         elif role == RoleType.INTERFACE_AI:
             # 接口AI需要看到：人类输入 + 产品AI分析 + 架构AI设计 + 自己的历史回复
-            for msg in self.messages[-max_messages:]:
+            for msg in reversed(self.messages):
                 if (msg.role == RoleType.HUMAN or 
                     msg.role == RoleType.PRODUCT_AI or
                     msg.role == RoleType.ARCHITECT_AI or
                     msg.role == RoleType.INTERFACE_AI):
-                    relevant_messages.append(msg)
+                    relevant_messages.insert(0, msg)
+                if len(relevant_messages) >= max_count:
+                    break
                     
         elif role == RoleType.PROGRAMMER_AI:
             # 程序员AI需要看到：全部相关消息（除了系统消息）
-            for msg in self.messages[-max_messages:]:
+            for msg in reversed(self.messages):
                 if msg.message_type != MessageType.SYSTEM_INFO:
-                    relevant_messages.append(msg)
+                    relevant_messages.insert(0, msg)
+                if len(relevant_messages) >= max_count:
+                    break
         else:
-            # 默认情况：所有消息
-            relevant_messages = self.messages[-max_messages:]
+            # 默认情况：所有最近消息
+            relevant_messages = self.messages[-max_count:]
         
-        # 构建上下文字符串，同时管理长度
+        return relevant_messages
+
+    def get_compressed_context_for_role(self, role: RoleType) -> str:
+        """获取压缩的上下文（仅总结 + 最关键的最近消息）"""
         context_parts = []
-        total_length = 0
         
-        # 从最新消息开始，逐步添加到上下文中
-        for msg in reversed(relevant_messages):
+        # 添加最新的总结
+        if self.conversation_summaries:
+            latest_summary = list(self.conversation_summaries.values())[-1]
+            context_parts.append(f"【对话总结】{latest_summary}")
+            context_parts.append("---")
+        
+        # 只添加最关键的最近消息（最后3-5条）
+        key_messages = self.get_recent_messages_for_role(role, 5)
+        for msg in key_messages[-3:]:  # 只取最后3条
             role_name = self.get_role_display_name(msg.role)
             timestamp = msg.timestamp.strftime("%H:%M:%S")
-            
-            # 根据消息重要性决定截断策略
-            if msg.role == RoleType.HUMAN:
-                # 人类输入最重要，较少截断
-                content = msg.content[:500] + "..." if len(msg.content) > 500 else msg.content
-            elif msg.message_type == MessageType.AI_RESPONSE:
-                # AI回复适中截断
-                content = msg.content[:300] + "..." if len(msg.content) > 300 else msg.content
-            else:
-                # 系统消息较多截断
-                content = msg.content[:150] + "..." if len(msg.content) > 150 else msg.content
-            
-            message_part = f"[{timestamp}] {role_name}: {content}"
-            
-            # 检查是否超过最大长度
-            if total_length + len(message_part) > self.max_context_length:
-                break
-                
-            context_parts.insert(0, message_part)  # 插入到开头保持时间顺序
-            total_length += len(message_part) + 1  # +1 for newline
+            context_parts.append(f"[{timestamp}] {role_name}: {msg.content}")
         
-        context = "\n".join(context_parts)
-        
-        # 如果上下文为空，至少包含最后一条人类消息
-        if not context and len(self.messages) > 0:
-            for msg in reversed(self.messages):
-                if msg.role == RoleType.HUMAN:
-                    role_name = self.get_role_display_name(msg.role)
-                    timestamp = msg.timestamp.strftime("%H:%M:%S")
-                    content = msg.content[:500] + "..." if len(msg.content) > 500 else msg.content
-                    context = f"[{timestamp}] {role_name}: {content}"
-                    break
-        
-        return context
+        return "\n".join(context_parts)
     
     def get_role_display_name(self, role: RoleType) -> str:
         """获取角色显示名称"""
@@ -187,13 +269,33 @@ orchestra_state = OrchestraState()
 AI_PROMPTS = {
     RoleType.PRODUCT_AI: """
 你是产品AI，负责需求分析和产品设计。你的职责包括：
+
+**第一阶段 - 需求收集**：
 1. 收到人类的初始需求后，向人类提出具体的问题来明确需求细节
 2. 问题要具体，最好是选择题，避免模糊问题
 3. 明确需求的哪些方面是人类在乎的，哪些是无所谓的
-4. 将确认的产品需求整理成文档并交给架构AI
-5. 对于无法解决的问题要及时上报给人类
+4. 每次回复都要评估：是否已经收集到足够的信息来设计产品
 
-请用专业但易懂的语言与人类沟通，确保需求明确准确。
+**第二阶段 - 需求确认与总结**：
+当你认为已经收集到足够信息时，必须：
+1. 明确声明："基于我们的对话，我认为已经收集到足够的产品需求信息"
+2. 提供完整的需求总结，包括：
+   - 核心功能需求
+   - 用户角色和权限
+   - 关键业务流程
+   - 技术要求和约束
+   - 优先级说明
+3. 询问用户："请确认以上需求总结是否完整准确？如果确认无误，我将把需求移交给架构AI进行技术设计。"
+
+**重要原则**：
+- 不要无限制地问问题，通常3-5轮对话应该能收集到基本信息
+- 要主动判断何时信息已经足够进行产品设计
+- 如果遇到无法解决的问题，及时上报给人类
+- 用专业但易懂的语言与人类沟通
+
+**回复格式指导**：
+- 如果还需要更多信息，继续提问
+- 如果信息足够，使用"【需求确认】"标记开始需求总结
 """,
     
     RoleType.ARCHITECT_AI: """
@@ -256,6 +358,47 @@ async def websocket_endpoint(websocket: WebSocket):
 async def broadcast_message(message: Message):
     orchestra_state.messages.append(message)
     
+    # 检查是否是对话结束点，如果是则触发总结
+    if is_conversation_endpoint(message):
+        logger.info(f"检测到对话结束点，触发对话总结")
+        import asyncio
+        asyncio.create_task(generate_conversation_summary())
+    
+    # 检查产品AI是否发出了需求确认信号
+    if (message.role == RoleType.PRODUCT_AI and 
+        message.message_type == MessageType.AI_RESPONSE and
+        "【需求确认】" in message.content):
+        
+        logger.info("检测到产品AI需求确认信号，自动启动架构AI")
+        
+        # 标记需求已确认
+        orchestra_state.requirement_confirmed = True
+        orchestra_state.current_requirement = message.content
+        
+        # 发送流程转换系统消息
+        transition_message = Message(
+            id=str(uuid.uuid4()),
+            role=RoleType.ETHER,
+            message_type=MessageType.SYSTEM_INFO,
+            content="✅ 产品AI已完成需求收集和总结，自动启动架构设计阶段...",
+            timestamp=datetime.now()
+        )
+        orchestra_state.messages.append(transition_message)
+        
+        # 广播流程转换消息
+        for websocket in orchestra_state.websocket_connections:
+            try:
+                await websocket.send_text(json.dumps({
+                    "type": "new_message", 
+                    "message": transition_message.model_dump(mode="json")
+                }))
+            except:
+                pass
+        
+        # 自动触发架构AI（异步执行避免阻塞）
+        import asyncio
+        asyncio.create_task(auto_trigger_architect_ai(message.content))
+    
     disconnected = []
     for websocket in orchestra_state.websocket_connections:
         try:
@@ -270,7 +413,7 @@ async def broadcast_message(message: Message):
         orchestra_state.websocket_connections.remove(ws)
 
 async def handle_human_input(content: str):
-    logger.info(f"收到人类输入: {content[:100]}{'...' if len(content) > 100 else ''}")
+    logger.info(f"收到人类输入: {content}")  # 完整记录
     
     message = Message(
         id=str(uuid.uuid4()),
@@ -286,8 +429,20 @@ async def handle_human_input(content: str):
         logger.info("需求尚未确认，触发产品AI分析")
         await trigger_product_ai(content)
     else:
-        logger.info("需求已确认，处理确认后的输入")
-        await handle_confirmed_requirement_input(content)
+        logger.info("需求已确认，继续后续协作流程")
+        # 需求已确认后，用户的输入可以用于指导后续的AI协作
+        await handle_post_requirement_input(content)
+
+def has_recent_product_confirmation() -> bool:
+    """检查最近是否有产品AI的需求确认"""
+    # 检查最近5条消息中是否有产品AI的需求确认
+    recent_messages = orchestra_state.messages[-5:]
+    for msg in recent_messages:
+        if (msg.role == RoleType.PRODUCT_AI and 
+            msg.message_type == MessageType.AI_RESPONSE and
+            "【需求确认】" in msg.content):
+            return True
+    return False
 
 async def handle_human_interrupt(content: str):
     message = Message(
@@ -301,14 +456,25 @@ async def handle_human_interrupt(content: str):
     await broadcast_message(message)
 
 async def trigger_product_ai(user_input: str):
-    logger.info(f"触发产品AI分析用户需求: {user_input[:50]}{'...' if len(user_input) > 50 else ''}")
+    logger.info(f"触发产品AI分析用户需求: {user_input}")  # 完整记录
+    
+    # 统计产品AI和人类的对话轮数来判断是否应该开始总结
+    product_ai_messages = sum(1 for msg in orchestra_state.messages 
+                             if msg.role == RoleType.PRODUCT_AI and msg.message_type == MessageType.AI_RESPONSE)
+    
+    if product_ai_messages >= 2:  # 2轮对话后开始提醒总结
+        additional_instruction = """
+
+**重要提醒**: 这已经是我们的第{}轮对话了。请评估是否已经收集到足够的需求信息。如果是，请使用"【需求确认】"标记开始需求总结。""".format(product_ai_messages + 1)
+    else:
+        additional_instruction = ""
     
     prompt = f"""
 {AI_PROMPTS[RoleType.PRODUCT_AI]}
 
-用户需求：{user_input}
+用户输入：{user_input}
 
-请分析这个需求并提出3-5个具体的澄清问题，帮助明确产品需求的细节。
+请根据用户的输入继续需求分析。如果这是初始需求，请提出3-5个具体的澄清问题。如果这是对之前问题的回答，请基于已有信息继续深入了解或考虑是否可以开始需求总结。{additional_instruction}
 """
     
     response = await call_ollama_api(prompt, RoleType.PRODUCT_AI)
@@ -326,7 +492,7 @@ async def trigger_product_ai(user_input: str):
         logger.error("产品AI响应生成失败")
 
 async def trigger_architect_ai(requirement: str):
-    logger.info(f"触发架构AI设计技术方案: {requirement[:50]}{'...' if len(requirement) > 50 else ''}")
+    logger.info(f"触发架构AI设计技术方案: {requirement}")  # 完整记录
     
     prompt = f"""
 {AI_PROMPTS[RoleType.ARCHITECT_AI]}
@@ -392,10 +558,10 @@ async def call_ollama_api(prompt: str, role: RoleType, include_context: bool = T
                 }
                 logger.info(f"[{request_id}] 上下文统计: {json.dumps(context_stats, ensure_ascii=False)}")
         
-        # 记录请求详情
+        # 记录请求详情（完整版本）
         request_data = {
             "model": orchestra_state.selected_model,
-            "prompt": full_prompt[:500] + "..." if len(full_prompt) > 500 else full_prompt,  # 截断长提示
+            "prompt": full_prompt,  # 完整记录，不截断
             "stream": False
         }
         logger.info(f"[{request_id}] 请求数据: {json.dumps(request_data, ensure_ascii=False, indent=2)}")
@@ -419,9 +585,9 @@ async def call_ollama_api(prompt: str, role: RoleType, include_context: bool = T
                 result = response.json()
                 response_text = result.get("response", "")
                 
-                # 记录响应详情
+                # 记录响应详情（完整版本）
                 logger.info(f"[{request_id}] 响应成功 - 长度: {len(response_text)}字符")
-                logger.info(f"[{request_id}] 响应内容预览: {response_text[:300]}{'...' if len(response_text) > 300 else ''}")
+                logger.info(f"[{request_id}] 完整响应内容: {response_text}")  # 完整记录，不截断
                 
                 # 记录额外的响应信息
                 if 'eval_count' in result:
@@ -460,10 +626,258 @@ async def call_ollama_api(prompt: str, role: RoleType, include_context: bool = T
         return None
 
 async def handle_confirmed_requirement_input(content: str):
-    if "需求确认" in content or "开始开发" in content:
+    """处理需求确认阶段的用户输入（已废弃，保留向后兼容）"""
+    if "需求确认" in content or "开始开发" in content or "确认" in content:
         orchestra_state.requirement_confirmed = True
         orchestra_state.current_requirement = content
-        await trigger_architect_ai(content)
+        
+        # 发送确认消息
+        confirmation_message = Message(
+            id=str(uuid.uuid4()),
+            role=RoleType.ETHER,
+            message_type=MessageType.SYSTEM_INFO,
+            content="✅ 需求已确认！正在启动架构设计阶段...",
+            timestamp=datetime.now()
+        )
+        await broadcast_message(confirmation_message)
+        
+        # 获取产品AI的需求总结作为架构设计的输入
+        requirement_summary = extract_requirement_summary()
+        await trigger_architect_ai(requirement_summary or content)
+
+async def handle_post_requirement_input(content: str):
+    """处理需求确认后的用户输入"""
+    logger.info(f"需求确认后的用户输入: {content}")  # 完整记录
+    
+    # 用户可能想要：
+    # 1. 修改需求
+    # 2. 指导当前AI的工作
+    # 3. 询问进度
+    # 4. 打断当前流程
+    
+    if any(keyword in content for keyword in ["修改", "更改", "重新", "不对"]):
+        # 用户想要修改需求，重置状态
+        logger.info("用户要求修改需求，重置协作状态")
+        
+        reset_message = Message(
+            id=str(uuid.uuid4()),
+            role=RoleType.ETHER,
+            message_type=MessageType.SYSTEM_INFO,
+            content="🔄 检测到需求修改请求，重置协作状态，重新开始需求收集...",
+            timestamp=datetime.now()
+        )
+        await broadcast_message(reset_message)
+        
+        # 重置状态
+        orchestra_state.requirement_confirmed = False
+        orchestra_state.current_requirement = None
+        
+        # 重新触发产品AI
+        await trigger_product_ai(content)
+        
+    else:
+        # 用户的指导意见，可以传递给当前活跃的AI角色
+        guidance_message = Message(
+            id=str(uuid.uuid4()),
+            role=RoleType.ETHER,
+            message_type=MessageType.SYSTEM_INFO,
+            content=f"📝 用户指导意见已记录: {content}",
+            timestamp=datetime.now()
+        )
+        await broadcast_message(guidance_message)
+
+def is_conversation_endpoint(message: Message) -> bool:
+    """判断是否是对话结束点"""
+    # 对话结束的标志：
+    # 1. 产品AI发出需求确认
+    # 2. 架构AI完成技术方案设计
+    # 3. 程序员AI完成代码实现
+    # 4. 用户发出明确的结束指令
+    # 5. 出现错误消息后
+    # 6. 文件保存完成后
+    
+    if message.role == RoleType.PRODUCT_AI and "【需求确认】" in message.content:
+        logger.info("检测到产品AI需求确认，标记为对话结束点")
+        return True
+    
+    if message.role == RoleType.ARCHITECT_AI and any(keyword in message.content for keyword in ["技术方案设计完成", "架构设计完成", "开发计划制定完成"]):
+        logger.info("检测到架构AI完成设计，标记为对话结束点")
+        return True
+    
+    if message.role == RoleType.PROGRAMMER_AI and any(keyword in message.content for keyword in ["代码实现完成", "程序开发完成", "代码编写完成"]):
+        logger.info("检测到程序员AI完成实现，标记为对话结束点")
+        return True
+    
+    if message.role == RoleType.HUMAN and any(keyword in message.content for keyword in ["结束", "完成", "停止", "谢谢", "好的", "OK", "ok"]):
+        logger.info("检测到用户结束指令，标记为对话结束点")
+        return True
+    
+    if message.message_type == MessageType.ERROR:
+        logger.info("检测到错误消息，标记为对话结束点")
+        return True
+    
+    if message.message_type == MessageType.FILE_SAVED:
+        logger.info("检测到文件保存完成，标记为对话结束点")
+        return True
+    
+    # 检查最近几条消息，如果没有新的AI响应（超过30秒），也视为对话结束
+    if len(orchestra_state.messages) >= 3:
+        recent_messages = orchestra_state.messages[-3:]
+        last_ai_response = None
+        for msg in reversed(recent_messages):
+            if msg.message_type == MessageType.AI_RESPONSE:
+                last_ai_response = msg
+                break
+        
+        if last_ai_response:
+            time_since_last_ai = (datetime.now() - last_ai_response.timestamp).total_seconds()
+            if time_since_last_ai > 30:  # 30秒无AI响应
+                logger.info(f"最后AI响应已过去{time_since_last_ai}秒，标记为对话结束点")
+                return True
+    
+    return False
+
+def extract_requirement_summary() -> Optional[str]:
+    """提取产品AI的需求总结"""
+    # 从最近的消息中寻找产品AI的需求确认消息
+    for msg in reversed(orchestra_state.messages):
+        if (msg.role == RoleType.PRODUCT_AI and 
+            msg.message_type == MessageType.AI_RESPONSE and
+            "【需求确认】" in msg.content):
+            return msg.content
+    return None
+
+async def auto_trigger_architect_ai(requirement_summary: str):
+    """自动触发架构AI的异步函数"""
+    try:
+        # 给用户一点时间看到流程转换消息
+        await asyncio.sleep(1)
+        
+        logger.info("自动触发架构AI开始技术设计")
+        await trigger_architect_ai(requirement_summary)
+        
+    except Exception as e:
+        logger.error(f"自动触发架构AI时发生错误: {str(e)}")
+        
+        # 发送错误消息
+        error_message = Message(
+            id=str(uuid.uuid4()),
+            role=RoleType.ETHER,
+            message_type=MessageType.ERROR,
+            content=f"❌ 自动启动架构AI时发生错误: {str(e)}",
+            timestamp=datetime.now()
+        )
+        await broadcast_message(error_message)
+
+async def generate_conversation_summary():
+    """生成对话总结"""
+    try:
+        if len(orchestra_state.messages) < 5:  # 消息太少不需要总结
+            return
+            
+        logger.info("开始生成对话总结")
+        
+        # 获取当前对话段落的所有消息（自上次总结后的所有消息）
+        if orchestra_state.conversation_summaries:
+            # 找到最后一次总结后的所有消息
+            last_summary_time = None
+            for msg in reversed(orchestra_state.messages):
+                if (msg.role == RoleType.ETHER and 
+                    msg.message_type == MessageType.SYSTEM_INFO and
+                    "已生成对话总结" in msg.content):
+                    last_summary_time = msg.timestamp
+                    break
+            
+            if last_summary_time:
+                current_conversation = [msg for msg in orchestra_state.messages if msg.timestamp > last_summary_time]
+            else:
+                current_conversation = orchestra_state.messages[-20:]  # 如果找不到标记，使用最近20条
+        else:
+            # 第一次总结，使用所有消息
+            current_conversation = orchestra_state.messages
+        
+        # 如果消息太少，不生成总结
+        if len(current_conversation) < 3:
+            logger.info(f"当前对话段落消息太少({len(current_conversation)}条)，跳过总结")
+            return
+        
+        recent_messages = current_conversation
+        
+        # 构建总结提示词
+        messages_text = []
+        for msg in recent_messages:
+            role_name = orchestra_state.get_role_display_name(msg.role)
+            timestamp = msg.timestamp.strftime("%H:%M:%S")
+            messages_text.append(f"[{timestamp}] {role_name}: {msg.content}")
+        
+        summary_prompt = f"""
+你是一个专业的对话总结AI，需要为多AI协作平台生成高质量的对话总结。
+
+对话内容：
+{chr(10).join(messages_text)}
+
+总结要求：
+1. **核心需求和决策**：提取所有明确的需求、用户决策、确认信息
+2. **技术要点**：保留架构设计、接口规范、实现细节、约束条件
+3. **工作流程**：记录各AI角色的工作状态、已完成的任务、待办事项
+4. **关键结论**：保留重要的分析结果、设计决定、问题解决方案
+5. **用户反馈**：保留用户的修改意见、指导建议、满意度表达
+
+总结格式：
+【需求要点】：...
+【技术决策】：...
+【工作进展】：...
+【关键结论】：...
+【用户指导】：...
+【下步行动】：...
+
+注意事项：
+- 保持客观中性，不添加主观判断
+- 使用简洁但信息完整的表达
+- 去除客套话但保留所有实质性内容
+- 按逻辑顺序而非时间顺序组织信息
+- 确保总结能够为后续对话提供有效上下文
+
+请提供结构化总结：
+"""
+        
+        # 调用AI生成总结
+        summary = await call_ollama_api(summary_prompt, RoleType.ETHER, include_context=False)
+        
+        if summary:
+            # 保存总结
+            summary_key = f"summary_{len(orchestra_state.messages)}"
+            orchestra_state.conversation_summaries[summary_key] = summary
+            
+            logger.info(f"对话总结生成成功，保存为 {summary_key}")
+            logger.info(f"总结内容: {summary}")
+            
+            # 发送总结完成的系统消息
+            summary_message = Message(
+                id=str(uuid.uuid4()),
+                role=RoleType.ETHER,
+                message_type=MessageType.SYSTEM_INFO,
+                content=f"📋 已生成对话总结 (消息数: {len(orchestra_state.messages)})",
+                timestamp=datetime.now()
+            )
+            # 注意：这里不能调用broadcast_message，会导致递归
+            orchestra_state.messages.append(summary_message)
+            
+            # 直接发送给客户端
+            for websocket in orchestra_state.websocket_connections:
+                try:
+                    await websocket.send_text(json.dumps({
+                        "type": "new_message",
+                        "message": summary_message.model_dump(mode="json")
+                    }))
+                except:
+                    pass
+                    
+        else:
+            logger.error("对话总结生成失败")
+            
+    except Exception as e:
+        logger.error(f"生成对话总结时发生错误: {str(e)}", exc_info=True)
 
 async def save_generated_code(filename: str, content: str):
     try:
@@ -574,6 +988,46 @@ async def update_context_settings(settings: ContextSettings):
         "max_context_messages": orchestra_state.max_context_messages,
         "max_context_length": orchestra_state.max_context_length
     }
+
+class SummarySettings(BaseModel):
+    summary_trigger_count: Optional[int] = None
+
+@app.get("/api/summary_settings")
+async def get_summary_settings():
+    return {
+        "summary_trigger_count": orchestra_state.summary_trigger_count,
+        "summaries_count": len(orchestra_state.conversation_summaries),
+        "current_messages_count": len(orchestra_state.messages)
+    }
+
+@app.post("/api/summary_settings") 
+async def update_summary_settings(settings: SummarySettings):
+    if settings.summary_trigger_count is not None:
+        orchestra_state.summary_trigger_count = settings.summary_trigger_count
+        logger.info(f"更新总结触发频率: 每{settings.summary_trigger_count}条消息")
+    
+    return {
+        "status": "success",
+        "summary_trigger_count": orchestra_state.summary_trigger_count
+    }
+
+@app.get("/api/summaries")
+async def get_conversation_summaries():
+    return {
+        "summaries": orchestra_state.conversation_summaries,
+        "count": len(orchestra_state.conversation_summaries)
+    }
+
+@app.post("/api/generate_summary")
+async def manual_generate_summary():
+    """手动触发对话总结"""
+    if len(orchestra_state.messages) < 5:
+        return {"status": "error", "message": "消息数量太少，无需总结"}
+    
+    import asyncio
+    asyncio.create_task(generate_conversation_summary())
+    
+    return {"status": "success", "message": "已开始生成对话总结"}
 
 @app.get("/")
 async def serve_frontend():
