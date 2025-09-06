@@ -82,6 +82,105 @@ class OrchestraState:
         self.websocket_connections: List[WebSocket] = []
         self.file_outputs: List[str] = []
         self.selected_model: str = "llama3.1:8b"
+        self.max_context_messages: int = 20  # 最大上下文消息数量
+        self.max_context_length: int = 8000  # 最大上下文字符长度
+    
+    def get_context_for_role(self, role: RoleType, max_messages: Optional[int] = None) -> str:
+        """获取特定角色的对话上下文"""
+        if max_messages is None:
+            max_messages = self.max_context_messages
+            
+        # 获取最近的相关消息
+        relevant_messages = []
+        
+        # 根据角色类型选择不同的上下文策略
+        if role == RoleType.PRODUCT_AI:
+            # 产品AI需要看到：人类输入 + 自己的历史回复
+            for msg in self.messages[-max_messages:]:
+                if (msg.role == RoleType.HUMAN or 
+                    msg.role == RoleType.PRODUCT_AI):
+                    relevant_messages.append(msg)
+                    
+        elif role == RoleType.ARCHITECT_AI:
+            # 架构AI需要看到：人类输入 + 产品AI的分析 + 自己的历史回复
+            for msg in self.messages[-max_messages:]:
+                if (msg.role == RoleType.HUMAN or 
+                    msg.role == RoleType.PRODUCT_AI or
+                    msg.role == RoleType.ARCHITECT_AI):
+                    relevant_messages.append(msg)
+                    
+        elif role == RoleType.INTERFACE_AI:
+            # 接口AI需要看到：人类输入 + 产品AI分析 + 架构AI设计 + 自己的历史回复
+            for msg in self.messages[-max_messages:]:
+                if (msg.role == RoleType.HUMAN or 
+                    msg.role == RoleType.PRODUCT_AI or
+                    msg.role == RoleType.ARCHITECT_AI or
+                    msg.role == RoleType.INTERFACE_AI):
+                    relevant_messages.append(msg)
+                    
+        elif role == RoleType.PROGRAMMER_AI:
+            # 程序员AI需要看到：全部相关消息（除了系统消息）
+            for msg in self.messages[-max_messages:]:
+                if msg.message_type != MessageType.SYSTEM_INFO:
+                    relevant_messages.append(msg)
+        else:
+            # 默认情况：所有消息
+            relevant_messages = self.messages[-max_messages:]
+        
+        # 构建上下文字符串，同时管理长度
+        context_parts = []
+        total_length = 0
+        
+        # 从最新消息开始，逐步添加到上下文中
+        for msg in reversed(relevant_messages):
+            role_name = self.get_role_display_name(msg.role)
+            timestamp = msg.timestamp.strftime("%H:%M:%S")
+            
+            # 根据消息重要性决定截断策略
+            if msg.role == RoleType.HUMAN:
+                # 人类输入最重要，较少截断
+                content = msg.content[:500] + "..." if len(msg.content) > 500 else msg.content
+            elif msg.message_type == MessageType.AI_RESPONSE:
+                # AI回复适中截断
+                content = msg.content[:300] + "..." if len(msg.content) > 300 else msg.content
+            else:
+                # 系统消息较多截断
+                content = msg.content[:150] + "..." if len(msg.content) > 150 else msg.content
+            
+            message_part = f"[{timestamp}] {role_name}: {content}"
+            
+            # 检查是否超过最大长度
+            if total_length + len(message_part) > self.max_context_length:
+                break
+                
+            context_parts.insert(0, message_part)  # 插入到开头保持时间顺序
+            total_length += len(message_part) + 1  # +1 for newline
+        
+        context = "\n".join(context_parts)
+        
+        # 如果上下文为空，至少包含最后一条人类消息
+        if not context and len(self.messages) > 0:
+            for msg in reversed(self.messages):
+                if msg.role == RoleType.HUMAN:
+                    role_name = self.get_role_display_name(msg.role)
+                    timestamp = msg.timestamp.strftime("%H:%M:%S")
+                    content = msg.content[:500] + "..." if len(msg.content) > 500 else msg.content
+                    context = f"[{timestamp}] {role_name}: {content}"
+                    break
+        
+        return context
+    
+    def get_role_display_name(self, role: RoleType) -> str:
+        """获取角色显示名称"""
+        role_names = {
+            RoleType.HUMAN: "人类用户",
+            RoleType.ETHER: "系统",
+            RoleType.PRODUCT_AI: "产品AI",
+            RoleType.ARCHITECT_AI: "架构AI", 
+            RoleType.INTERFACE_AI: "接口AI",
+            RoleType.PROGRAMMER_AI: "程序员AI"
+        }
+        return role_names.get(role, role.value)
 
 orchestra_state = OrchestraState()
 
@@ -255,7 +354,7 @@ async def trigger_architect_ai(requirement: str):
     else:
         logger.error("架构AI方案设计失败")
 
-async def call_ollama_api(prompt: str, role: RoleType) -> Optional[str]:
+async def call_ollama_api(prompt: str, role: RoleType, include_context: bool = True) -> Optional[str]:
     request_id = str(uuid.uuid4())[:8]
     logger.info(f"[{request_id}] 开始Ollama API调用 - 角色: {role.value}, 模型: {orchestra_state.selected_model}")
     
@@ -269,10 +368,34 @@ async def call_ollama_api(prompt: str, role: RoleType) -> Optional[str]:
         )
         await broadcast_message(ether_message)
         
+        # 构建完整的提示词（包含上下文）
+        full_prompt = prompt
+        if include_context and len(orchestra_state.messages) > 0:
+            context = orchestra_state.get_context_for_role(role)
+            if context:
+                full_prompt = f"""以下是相关的对话历史：
+
+{context}
+
+---
+
+基于以上对话历史，请回应以下请求：
+
+{prompt}
+
+请确保你的回应考虑到之前的对话内容，保持连贯性。"""
+                
+                context_stats = {
+                    "total_messages": len(orchestra_state.messages),
+                    "context_length": len(context),
+                    "context_lines": len(context.split('\n')) if context else 0
+                }
+                logger.info(f"[{request_id}] 上下文统计: {json.dumps(context_stats, ensure_ascii=False)}")
+        
         # 记录请求详情
         request_data = {
             "model": orchestra_state.selected_model,
-            "prompt": prompt[:200] + "..." if len(prompt) > 200 else prompt,  # 截断长提示
+            "prompt": full_prompt[:500] + "..." if len(full_prompt) > 500 else full_prompt,  # 截断长提示
             "stream": False
         }
         logger.info(f"[{request_id}] 请求数据: {json.dumps(request_data, ensure_ascii=False, indent=2)}")
@@ -283,7 +406,7 @@ async def call_ollama_api(prompt: str, role: RoleType) -> Optional[str]:
                 "http://localhost:11434/api/generate",
                 json={
                     "model": orchestra_state.selected_model,
-                    "prompt": prompt,
+                    "prompt": full_prompt,
                     "stream": False
                 },
                 timeout=60.0
@@ -423,6 +546,34 @@ async def select_model(model_data: ModelSelection):
     logger.info(f"模型已成功切换为: {new_model}")
     
     return {"status": "success", "selected_model": new_model}
+
+class ContextSettings(BaseModel):
+    max_context_messages: Optional[int] = None
+    max_context_length: Optional[int] = None
+
+@app.get("/api/context_settings")
+async def get_context_settings():
+    return {
+        "max_context_messages": orchestra_state.max_context_messages,
+        "max_context_length": orchestra_state.max_context_length,
+        "current_messages_count": len(orchestra_state.messages)
+    }
+
+@app.post("/api/context_settings")
+async def update_context_settings(settings: ContextSettings):
+    if settings.max_context_messages is not None:
+        orchestra_state.max_context_messages = settings.max_context_messages
+        logger.info(f"更新最大上下文消息数: {settings.max_context_messages}")
+    
+    if settings.max_context_length is not None:
+        orchestra_state.max_context_length = settings.max_context_length
+        logger.info(f"更新最大上下文长度: {settings.max_context_length}")
+    
+    return {
+        "status": "success",
+        "max_context_messages": orchestra_state.max_context_messages,
+        "max_context_length": orchestra_state.max_context_length
+    }
 
 @app.get("/")
 async def serve_frontend():
