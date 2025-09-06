@@ -148,12 +148,7 @@ class OrchestraAI {
             column.addEventListener('click', (e) => {
                 const role = column.getAttribute('data-role');
                 if (role) {
-                    if (this.userSelectedColumn === role) {
-                        // 如果点击的是已选中的列，则取消选择
-                        this.clearUserSelection();
-                    } else {
-                        this.setUserSelectedColumn(role);
-                    }
+                    this.setUserSelectedColumn(role);
                 }
             });
         });
