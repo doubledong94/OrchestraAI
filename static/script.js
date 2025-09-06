@@ -12,6 +12,8 @@ class OrchestraAI {
             programmer_ai: 0
         };
         this.activeColumn = null;
+        this.userSelectedColumn = null; // 用户手动选择的列
+        this.lastMessageColumn = null;  // 最后一次有消息的列
         this.lastActivityTime = {};
         this.activityTimeout = null;
         this.isComposing = false; // 用于跟踪输入法状态
@@ -145,8 +147,13 @@ class OrchestraAI {
         document.querySelectorAll('.column').forEach(column => {
             column.addEventListener('click', (e) => {
                 const role = column.getAttribute('data-role');
-                if (role && this.activeColumn !== role) {
-                    this.setActiveColumn(role);
+                if (role) {
+                    if (this.userSelectedColumn === role) {
+                        // 如果点击的是已选中的列，则取消选择
+                        this.clearUserSelection();
+                    } else {
+                        this.setUserSelectedColumn(role);
+                    }
                 }
             });
         });
@@ -183,8 +190,8 @@ class OrchestraAI {
         // 更新消息计数
         this.updateMessageCount(messageData.role);
         
-        // 设置活跃列
-        this.setActiveColumn(messageData.role);
+        // 设置最新消息列
+        this.setLastMessageColumn(messageData.role);
         
         // 更新时间线视图（如果打开）
         if (!document.getElementById('timeline-view').classList.contains('hidden')) {
@@ -492,7 +499,18 @@ class OrchestraAI {
         }, 3000);
     }
     
-    setActiveColumn(role) {
+    setUserSelectedColumn(role) {
+        this.userSelectedColumn = role;
+        this.updateColumnLayout();
+        
+        // 添加用户选择动画
+        const column = document.querySelector(`[data-role="${role}"]`);
+        if (column) {
+            column.classList.add('user-selected');
+        }
+    }
+    
+    setLastMessageColumn(role) {
         const currentTime = Date.now();
         this.lastActivityTime[role] = currentTime;
         
@@ -501,8 +519,8 @@ class OrchestraAI {
             clearTimeout(this.activityTimeout);
         }
         
-        // 更新活跃列
-        this.activeColumn = role;
+        // 更新最新消息列
+        this.lastMessageColumn = role;
         this.updateColumnLayout();
         
         // 添加最近活跃动画
@@ -515,35 +533,71 @@ class OrchestraAI {
         }
     }
     
-    resetActiveColumn() {
-        this.activeColumn = null;
+    resetLastMessageColumn() {
+        this.lastMessageColumn = null;
         this.updateColumnLayout();
         
-        // 移除所有列的活跃状态
+        // 移除最新消息活跃状态
         document.querySelectorAll('.column').forEach(column => {
-            column.classList.remove('active');
+            column.classList.remove('message-active');
+        });
+    }
+    
+    clearUserSelection() {
+        this.userSelectedColumn = null;
+        this.updateColumnLayout();
+        
+        // 移除用户选择状态
+        document.querySelectorAll('.column').forEach(column => {
+            column.classList.remove('user-selected');
         });
     }
     
     updateColumnLayout() {
         const container = document.querySelector('.columns-container');
         
-        if (this.activeColumn) {
+        // 获取活跃的列
+        const activeColumns = [];
+        if (this.userSelectedColumn) activeColumns.push(this.userSelectedColumn);
+        if (this.lastMessageColumn && this.lastMessageColumn !== this.userSelectedColumn) {
+            activeColumns.push(this.lastMessageColumn);
+        }
+        
+        // 清除所有活跃状态
+        document.querySelectorAll('.column').forEach(column => {
+            column.classList.remove('active', 'user-selected', 'message-active');
+        });
+        
+        if (activeColumns.length > 0) {
             container.classList.add('has-active');
-            container.setAttribute('data-active', this.activeColumn);
             
-            // 为活跃列添加样式
-            document.querySelectorAll('.column').forEach(column => {
-                column.classList.remove('active');
-            });
+            // 设置活跃列的样式和布局
+            if (activeColumns.length === 1) {
+                container.setAttribute('data-active', activeColumns[0]);
+                container.removeAttribute('data-dual-active');
+            } else if (activeColumns.length === 2) {
+                container.setAttribute('data-dual-active', `${activeColumns[0]}-${activeColumns[1]}`);
+                container.removeAttribute('data-active');
+            }
             
-            const activeColumnElement = document.querySelector(`[data-role="${this.activeColumn}"]`);
-            if (activeColumnElement) {
-                activeColumnElement.classList.add('active');
+            // 为活跃列添加对应的CSS类
+            if (this.userSelectedColumn) {
+                const userColumn = document.querySelector(`[data-role="${this.userSelectedColumn}"]`);
+                if (userColumn) {
+                    userColumn.classList.add('active', 'user-selected');
+                }
+            }
+            
+            if (this.lastMessageColumn) {
+                const messageColumn = document.querySelector(`[data-role="${this.lastMessageColumn}"]`);
+                if (messageColumn) {
+                    messageColumn.classList.add('active', 'message-active');
+                }
             }
         } else {
             container.classList.remove('has-active');
             container.removeAttribute('data-active');
+            container.removeAttribute('data-dual-active');
         }
     }
     

@@ -95,11 +95,7 @@ body {
     transition: grid-template-columns 0.3s ease;
 }
 
-/* 当有活跃列时的布局 */
-.columns-container.has-active {
-    grid-template-columns: 1fr 1fr 2fr 1fr 1fr 1fr;
-}
-
+/* 当有单个活跃列时的布局 */
 .columns-container.has-active[data-active="human"] {
     grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr;
 }
@@ -124,6 +120,107 @@ body {
     grid-template-columns: 1fr 1fr 1fr 1fr 1fr 2fr;
 }
 
+/* 当有两个活跃列时的布局 - 每个活跃列都变宽 */
+.columns-container.has-active[data-dual-active*="human"] {
+    grid-template-columns: 1.5fr 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr;
+}
+
+.columns-container.has-active[data-dual-active*="ether"] {
+    grid-template-columns: 0.75fr 1.5fr 0.75fr 0.75fr 0.75fr 0.75fr;
+}
+
+.columns-container.has-active[data-dual-active*="product_ai"] {
+    grid-template-columns: 0.75fr 0.75fr 1.5fr 0.75fr 0.75fr 0.75fr;
+}
+
+.columns-container.has-active[data-dual-active*="architect_ai"] {
+    grid-template-columns: 0.75fr 0.75fr 0.75fr 1.5fr 0.75fr 0.75fr;
+}
+
+.columns-container.has-active[data-dual-active*="interface_ai"] {
+    grid-template-columns: 0.75fr 0.75fr 0.75fr 0.75fr 1.5fr 0.75fr;
+}
+
+.columns-container.has-active[data-dual-active*="programmer_ai"] {
+    grid-template-columns: 0.75fr 0.75fr 0.75fr 0.75fr 0.75fr 1.5fr;
+}
+
+/* 两个活跃列的特殊组合布局 */
+.columns-container.has-active[data-dual-active="human-ether"],
+.columns-container.has-active[data-dual-active="ether-human"] {
+    grid-template-columns: 1.5fr 1.5fr 0.75fr 0.75fr 0.75fr 0.75fr;
+}
+
+.columns-container.has-active[data-dual-active="human-product_ai"],
+.columns-container.has-active[data-dual-active="product_ai-human"] {
+    grid-template-columns: 1.5fr 0.75fr 1.5fr 0.75fr 0.75fr 0.75fr;
+}
+
+.columns-container.has-active[data-dual-active="human-architect_ai"],
+.columns-container.has-active[data-dual-active="architect_ai-human"] {
+    grid-template-columns: 1.5fr 0.75fr 0.75fr 1.5fr 0.75fr 0.75fr;
+}
+
+.columns-container.has-active[data-dual-active="human-interface_ai"],
+.columns-container.has-active[data-dual-active="interface_ai-human"] {
+    grid-template-columns: 1.5fr 0.75fr 0.75fr 0.75fr 1.5fr 0.75fr;
+}
+
+.columns-container.has-active[data-dual-active="human-programmer_ai"],
+.columns-container.has-active[data-dual-active="programmer_ai-human"] {
+    grid-template-columns: 1.5fr 0.75fr 0.75fr 0.75fr 0.75fr 1.5fr;
+}
+
+.columns-container.has-active[data-dual-active="ether-product_ai"],
+.columns-container.has-active[data-dual-active="product_ai-ether"] {
+    grid-template-columns: 0.75fr 1.5fr 1.5fr 0.75fr 0.75fr 0.75fr;
+}
+
+.columns-container.has-active[data-dual-active="ether-architect_ai"],
+.columns-container.has-active[data-dual-active="architect_ai-ether"] {
+    grid-template-columns: 0.75fr 1.5fr 0.75fr 1.5fr 0.75fr 0.75fr;
+}
+
+.columns-container.has-active[data-dual-active="ether-interface_ai"],
+.columns-container.has-active[data-dual-active="interface_ai-ether"] {
+    grid-template-columns: 0.75fr 1.5fr 0.75fr 0.75fr 1.5fr 0.75fr;
+}
+
+.columns-container.has-active[data-dual-active="ether-programmer_ai"],
+.columns-container.has-active[data-dual-active="programmer_ai-ether"] {
+    grid-template-columns: 0.75fr 1.5fr 0.75fr 0.75fr 0.75fr 1.5fr;
+}
+
+.columns-container.has-active[data-dual-active="product_ai-architect_ai"],
+.columns-container.has-active[data-dual-active="architect_ai-product_ai"] {
+    grid-template-columns: 0.75fr 0.75fr 1.5fr 1.5fr 0.75fr 0.75fr;
+}
+
+.columns-container.has-active[data-dual-active="product_ai-interface_ai"],
+.columns-container.has-active[data-dual-active="interface_ai-product_ai"] {
+    grid-template-columns: 0.75fr 0.75fr 1.5fr 0.75fr 1.5fr 0.75fr;
+}
+
+.columns-container.has-active[data-dual-active="product_ai-programmer_ai"],
+.columns-container.has-active[data-dual-active="programmer_ai-product_ai"] {
+    grid-template-columns: 0.75fr 0.75fr 1.5fr 0.75fr 0.75fr 1.5fr;
+}
+
+.columns-container.has-active[data-dual-active="architect_ai-interface_ai"],
+.columns-container.has-active[data-dual-active="interface_ai-architect_ai"] {
+    grid-template-columns: 0.75fr 0.75fr 0.75fr 1.5fr 1.5fr 0.75fr;
+}
+
+.columns-container.has-active[data-dual-active="architect_ai-programmer_ai"],
+.columns-container.has-active[data-dual-active="programmer_ai-architect_ai"] {
+    grid-template-columns: 0.75fr 0.75fr 0.75fr 1.5fr 0.75fr 1.5fr;
+}
+
+.columns-container.has-active[data-dual-active="interface_ai-programmer_ai"],
+.columns-container.has-active[data-dual-active="programmer_ai-interface_ai"] {
+    grid-template-columns: 0.75fr 0.75fr 0.75fr 0.75fr 1.5fr 1.5fr;
+}
+
 /* 列样式 */
 .column {
     background: rgba(255, 255, 255, 0.95);
@@ -146,6 +243,24 @@ body {
 
 .column.recently-active {
     animation: recentActivity 2s ease-out;
+}
+
+/* 用户选择的列样式 */
+.column.user-selected {
+    border: 2px solid rgba(34, 197, 94, 0.5);
+    box-shadow: 0 8px 30px rgba(34, 197, 94, 0.2);
+}
+
+/* 最新消息列样式 */
+.column.message-active {
+    border: 2px solid rgba(79, 70, 229, 0.5);
+    box-shadow: 0 8px 30px rgba(79, 70, 229, 0.2);
+}
+
+/* 同时是用户选择和消息活跃的列 */
+.column.user-selected.message-active {
+    border: 2px solid rgba(168, 85, 247, 0.5);
+    box-shadow: 0 8px 30px rgba(168, 85, 247, 0.2);
 }
 
 @keyframes recentActivity {
