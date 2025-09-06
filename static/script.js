@@ -14,6 +14,7 @@ class OrchestraAI {
         this.activeColumn = null;
         this.lastActivityTime = {};
         this.activityTimeout = null;
+        this.isComposing = false; // 用于跟踪输入法状态
         
         this.init();
     }
@@ -67,11 +68,35 @@ class OrchestraAI {
             this.sendHumanInput();
         });
         
-        // 输入框回车发送
-        document.getElementById('human-input').addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                this.sendHumanInput();
+        // 输入法组合事件监听
+        const humanInput = document.getElementById('human-input');
+        
+        humanInput.addEventListener('compositionstart', () => {
+            this.isComposing = true;
+            this.updateInputHint();
+        });
+        
+        humanInput.addEventListener('compositionend', () => {
+            this.isComposing = false;
+            this.updateInputHint();
+        });
+        
+        // 输入框回车发送 - 修复输入法冲突
+        humanInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                if (this.isComposing) {
+                    // 输入法组合中，只有 Shift+Enter 才发送
+                    if (e.shiftKey) {
+                        e.preventDefault();
+                        this.sendHumanInput();
+                    }
+                } else {
+                    // 非输入法状态，Enter 发送，Shift+Enter 换行
+                    if (!e.shiftKey) {
+                        e.preventDefault();
+                        this.sendHumanInput();
+                    }
+                }
             }
         });
         
@@ -130,6 +155,7 @@ class OrchestraAI {
     setupUI() {
         this.updateConnectionStatus();
         this.disableControls();
+        this.updateInputHint();
     }
     
     handleWebSocketMessage(data) {
@@ -525,6 +551,34 @@ class OrchestraAI {
             container.removeAttribute('data-active');
         }
     }
+    
+    updateInputHint() {
+        const humanInput = document.getElementById('human-input');
+        const sendBtn = document.getElementById('send-btn');
+        const inputContainer = humanInput.closest('.input-container');
+        
+        // 移除之前的提示元素
+        const existingHint = inputContainer.querySelector('.input-hint');
+        if (existingHint) {
+            existingHint.remove();
+        }
+        
+        // 创建新的提示元素
+        const hintElement = document.createElement('div');
+        hintElement.className = 'input-hint';
+        
+        if (this.isComposing) {
+            hintElement.textContent = '输入法组合中... (Shift+Enter 发送)';
+            sendBtn.textContent = 'Shift+Enter 发送';
+            hintElement.style.color = '#f59e0b';
+        } else {
+            hintElement.textContent = 'Enter 发送, Shift+Enter 换行';
+            sendBtn.textContent = '发送 (Enter)';
+            hintElement.style.color = '#666';
+        }
+        
+        inputContainer.appendChild(hintElement);
+    }
 }
 
 // 添加新消息闪烁效果的CSS
@@ -573,6 +627,38 @@ style.textContent = `
         outline: none;
         border-color: #4f46e5;
         box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+    }
+    
+    /* 输入提示样式 */
+    .input-container {
+        position: relative;
+        padding-bottom: 25px;
+    }
+    
+    .input-hint {
+        position: absolute;
+        bottom: 5px;
+        left: 0;
+        font-size: 12px;
+        opacity: 0.7;
+        transition: all 0.3s ease;
+        pointer-events: none;
+        font-style: italic;
+    }
+    
+    .input-container:hover .input-hint,
+    .input-container:focus-within .input-hint {
+        opacity: 1;
+    }
+    
+    /* 发送按钮动态文本样式 */
+    #send-btn {
+        transition: all 0.3s ease;
+        min-width: 120px;
+    }
+    
+    #send-btn:hover {
+        background: linear-gradient(135deg, #3730a3, #6b21a8);
     }
     
     @keyframes slideIn {
