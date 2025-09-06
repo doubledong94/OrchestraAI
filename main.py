@@ -558,13 +558,11 @@ async def call_ollama_api(prompt: str, role: RoleType, include_context: bool = T
                 }
                 logger.info(f"[{request_id}] 上下文统计: {json.dumps(context_stats, ensure_ascii=False)}")
         
-        # 记录请求详情（完整版本）
-        request_data = {
-            "model": orchestra_state.selected_model,
-            "prompt": full_prompt,  # 完整记录，不截断
-            "stream": False
-        }
-        logger.info(f"[{request_id}] 请求数据: {json.dumps(request_data, ensure_ascii=False, indent=2)}")
+        # 记录Ollama输入
+        logger.info(f"[{request_id}] ===== OLLAMA输入 =============================")
+        logger.info(f"[{request_id}] 模型: {orchestra_state.selected_model}")
+        logger.info(f"[{request_id}] 输入Prompt: {full_prompt}")
+        logger.info(f"[{request_id}] ================================================")
         
         start_time = datetime.now()
         async with httpx.AsyncClient() as client:
@@ -575,7 +573,7 @@ async def call_ollama_api(prompt: str, role: RoleType, include_context: bool = T
                     "prompt": full_prompt,
                     "stream": False
                 },
-                timeout=60.0
+                timeout=1000.0
             )
             
             duration = (datetime.now() - start_time).total_seconds()
@@ -586,8 +584,10 @@ async def call_ollama_api(prompt: str, role: RoleType, include_context: bool = T
                 response_text = result.get("response", "")
                 
                 # 记录响应详情（完整版本）
-                logger.info(f"[{request_id}] 响应成功 - 长度: {len(response_text)}字符")
-                logger.info(f"[{request_id}] 完整响应内容: {response_text}")  # 完整记录，不截断
+                logger.info(f"[{request_id}] ===== OLLAMA输出 =============================")
+                logger.info(f"[{request_id}] 响应长度: {len(response_text)}字符")
+                logger.info(f"[{request_id}] 输出内容: {response_text}")
+                logger.info(f"[{request_id}] ================================================")
                 
                 # 记录额外的响应信息
                 if 'eval_count' in result:
@@ -803,9 +803,12 @@ async def generate_conversation_summary():
         
         recent_messages = current_conversation
         
-        # 构建总结提示词
+        # 构建总结提示词，过滤掉以太(系统)消息
         messages_text = []
         for msg in recent_messages:
+            # 跳过以太(系统)的消息，只保留实际对话
+            if msg.role == RoleType.ETHER:
+                continue
             role_name = orchestra_state.get_role_display_name(msg.role)
             timestamp = msg.timestamp.strftime("%H:%M:%S")
             messages_text.append(f"[{timestamp}] {role_name}: {msg.content}")
@@ -929,7 +932,7 @@ async def get_available_models():
     try:
         start_time = datetime.now()
         async with httpx.AsyncClient() as client:
-            response = await client.get("http://localhost:11434/api/tags", timeout=10.0)
+            response = await client.get("http://localhost:11434/api/tags", timeout=1000.0)
             duration = (datetime.now() - start_time).total_seconds()
             
             if response.status_code == 200:
