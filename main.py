@@ -69,6 +69,7 @@ class OrchestraState:
         self.requirement_confirmed: bool = False
         self.websocket_connections: List[WebSocket] = []
         self.file_outputs: List[str] = []
+        self.selected_model: str = "llama3.1:8b"
 
 orchestra_state = OrchestraState()
 
@@ -243,7 +244,7 @@ async def call_ollama_api(prompt: str, role: RoleType) -> Optional[str]:
             response = await client.post(
                 "http://localhost:11434/api/generate",
                 json={
-                    "model": "llama3.1:8b",
+                    "model": orchestra_state.selected_model,
                     "prompt": prompt,
                     "stream": False
                 },
@@ -326,6 +327,28 @@ async def get_tasks():
 async def save_code_endpoint(filename: str, content: str):
     await save_generated_code(filename, content)
     return {"status": "success", "message": f"Code saved to {filename}"}
+
+@app.get("/api/models")
+async def get_available_models():
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get("http://localhost:11434/api/tags", timeout=10.0)
+            if response.status_code == 200:
+                data = response.json()
+                models = [model["name"] for model in data.get("models", [])]
+                return {"models": models, "selected": orchestra_state.selected_model}
+            else:
+                return {"models": ["llama3.1:8b"], "selected": orchestra_state.selected_model, "error": "Failed to fetch models"}
+    except Exception as e:
+        return {"models": ["llama3.1:8b"], "selected": orchestra_state.selected_model, "error": str(e)}
+
+class ModelSelection(BaseModel):
+    model_name: str
+
+@app.post("/api/select_model")
+async def select_model(model_data: ModelSelection):
+    orchestra_state.selected_model = model_data.model_name
+    return {"status": "success", "selected_model": model_data.model_name}
 
 @app.get("/")
 async def serve_frontend():

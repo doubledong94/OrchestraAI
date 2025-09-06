@@ -11,6 +11,12 @@
         <header class="header">
             <h1>🎼 OrchestraAI 多AI协作平台</h1>
             <div class="status-bar">
+                <div class="model-selector">
+                    <label for="model-select">🤖 模型：</label>
+                    <select id="model-select">
+                        <option value="llama3.1:8b">llama3.1:8b</option>
+                    </select>
+                </div>
                 <span id="connection-status" class="status disconnected">断开连接</span>
                 <button id="interrupt-btn" class="interrupt-btn" disabled>🛑 紧急打断</button>
             </div>

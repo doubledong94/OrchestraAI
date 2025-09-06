@@ -19,6 +19,7 @@ class OrchestraAI {
         this.setupWebSocket();
         this.setupEventListeners();
         this.setupUI();
+        this.loadAvailableModels();
     }
     
     setupWebSocket() {
@@ -105,6 +106,11 @@ class OrchestraAI {
             if (e.target === document.getElementById('timeline-view')) {
                 this.hideTimelineView();
             }
+        });
+        
+        // 模型选择
+        document.getElementById('model-select').addEventListener('change', (e) => {
+            this.selectModel(e.target.value);
         });
     }
     
@@ -351,6 +357,98 @@ class OrchestraAI {
             // 静默处理音频错误
         }
     }
+    
+    async loadAvailableModels() {
+        try {
+            const response = await fetch('/api/models');
+            const data = await response.json();
+            
+            const modelSelect = document.getElementById('model-select');
+            
+            // 清空现有选项
+            modelSelect.innerHTML = '';
+            
+            // 添加可用模型
+            if (data.models && data.models.length > 0) {
+                data.models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model;
+                    option.textContent = model;
+                    if (model === data.selected) {
+                        option.selected = true;
+                    }
+                    modelSelect.appendChild(option);
+                });
+            } else {
+                // 如果没有可用模型，添加默认选项
+                const option = document.createElement('option');
+                option.value = 'llama3.1:8b';
+                option.textContent = 'llama3.1:8b';
+                modelSelect.appendChild(option);
+            }
+            
+            if (data.error) {
+                console.warn('获取模型列表时出现警告:', data.error);
+            }
+        } catch (error) {
+            console.error('加载模型列表失败:', error);
+            // 保持默认的 llama3.1:8b 选项
+        }
+    }
+    
+    async selectModel(modelName) {
+        try {
+            const response = await fetch('/api/select_model', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ model_name: modelName })
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                console.log('模型已切换为:', data.selected_model);
+                
+                // 可以添加一个提示消息
+                this.showModelChangedNotification(modelName);
+            } else {
+                console.error('切换模型失败');
+            }
+        } catch (error) {
+            console.error('切换模型时发生错误:', error);
+        }
+    }
+    
+    showModelChangedNotification(modelName) {
+        // 创建一个临时通知
+        const notification = document.createElement('div');
+        notification.className = 'model-notification';
+        notification.textContent = `已切换到模型: ${modelName}`;
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #4f46e5;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            z-index: 1000;
+            font-size: 14px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            animation: slideIn 0.3s ease-out;
+        `;
+        
+        document.body.appendChild(notification);
+        
+        // 3秒后移除通知
+        setTimeout(() => {
+            notification.style.animation = 'slideOut 0.3s ease-out';
+            setTimeout(() => {
+                document.body.removeChild(notification);
+            }, 300);
+        }, 3000);
+    }
 }
 
 // 添加新消息闪烁效果的CSS
@@ -372,6 +470,55 @@ style.textContent = `
     .message:hover {
         transform: translateX(5px);
         box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    }
+    
+    .model-selector {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-right: 20px;
+    }
+    
+    .model-selector label {
+        font-size: 14px;
+        font-weight: 500;
+    }
+    
+    .model-selector select {
+        padding: 4px 8px;
+        border: 1px solid #d1d5db;
+        border-radius: 4px;
+        background: white;
+        font-size: 14px;
+        min-width: 120px;
+    }
+    
+    .model-selector select:focus {
+        outline: none;
+        border-color: #4f46e5;
+        box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+    }
+    
+    @keyframes slideIn {
+        from {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+    
+    @keyframes slideOut {
+        from {
+            transform: translateX(0);
+            opacity: 1;
+        }
+        to {
+            transform: translateX(100%);
+            opacity: 0;
+        }
     }
 `;
 document.head.appendChild(style);
