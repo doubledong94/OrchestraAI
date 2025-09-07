@@ -85,45 +85,19 @@ class OrchestraState:
         self.max_context_messages: int = 20  # 最大上下文消息数量
         self.max_context_length: int = 8000  # 最大上下文字符长度
         self.conversation_summaries: Dict[str, str] = {}  # 各阶段的对话总结
-        self.summary_trigger_count: int = 10  # 每10条消息触发一次总结
+        self.summary_trigger_count: int = 6  # 每6条消息触发一次总结
     
     def get_context_for_role(self, role: RoleType, max_messages: Optional[int] = None) -> str:
-        """获取特定角色的对话上下文（基于AI总结）"""
-        if max_messages is None:
-            max_messages = self.max_context_messages
-        
-        context_parts = []
-        
-        # 1. 添加所有历史总结（已经是精炼的关键信息）
+        """获取特定角色的对话上下文（只使用总结）"""
+        # 如果有总结，直接返回最新的总结
         if self.conversation_summaries:
-            context_parts.append("=== 历史对话总结 ===")
-            for i, (summary_key, summary_content) in enumerate(self.conversation_summaries.items(), 1):
-                context_parts.append(f"总结{i}: {summary_content}")
-            context_parts.append("=== 当前对话 ===")
-        
-        # 2. 获取当前对话段落的消息（自最后一次总结后的消息）
-        current_conversation_messages = self.get_current_conversation_messages_for_role(role)
-        
-        # 如果当前对话消息较少，直接全部添加
-        if len(current_conversation_messages) <= max_messages:
-            for msg in current_conversation_messages:
-                role_name = self.get_role_display_name(msg.role)
-                timestamp = msg.timestamp.strftime("%H:%M:%S")
-                message_part = f"[{timestamp}] {role_name}: {msg.content}"
-                context_parts.append(message_part)
+            latest_summary = list(self.conversation_summaries.values())[-1]
+            logger.info(f"为角色 {role.value} 提供总结上下文，总结长度: {len(latest_summary)}")
+            return latest_summary
         else:
-            # 如果当前对话消息过多，只保留最重要的消息
-            important_messages = self.filter_important_messages_for_role(current_conversation_messages, role, max_messages)
-            for msg in important_messages:
-                role_name = self.get_role_display_name(msg.role)
-                timestamp = msg.timestamp.strftime("%H:%M:%S")
-                message_part = f"[{timestamp}] {role_name}: {msg.content}"
-                context_parts.append(message_part)
-        
-        context = "\n".join(context_parts)
-        logger.info(f"为角色 {role.value} 生成上下文，总结数: {len(self.conversation_summaries)}, 当前消息数: {len(current_conversation_messages)}, 上下文长度: {len(context)}")
-        
-        return context
+            # 如果没有总结，返回空字符串，让AI基于当前提示词工作
+            logger.info(f"为角色 {role.value} 提供空上下文（无总结）")
+            return ""
     
     def get_current_conversation_messages_for_role(self, role: RoleType) -> List[Message]:
         """获取当前对话段落的消息（自最后一次总结后）"""
@@ -358,12 +332,6 @@ async def websocket_endpoint(websocket: WebSocket):
 async def broadcast_message(message: Message):
     orchestra_state.messages.append(message)
     
-    # 检查是否是对话结束点，如果是则触发总结
-    if is_conversation_endpoint(message):
-        logger.info(f"检测到对话结束点，触发对话总结")
-        import asyncio
-        asyncio.create_task(generate_conversation_summary())
-    
     # 检查产品AI是否发出了需求确认信号
     if (message.role == RoleType.PRODUCT_AI and 
         message.message_type == MessageType.AI_RESPONSE and
@@ -520,11 +488,52 @@ async def trigger_architect_ai(requirement: str):
     else:
         logger.error("架构AI方案设计失败")
 
+async def call_ollama_api_for_summary(prompt: str) -> Optional[str]:
+    """专门用于调用总结AI的函数，不触发总结更新"""
+    request_id = str(uuid.uuid4())[:8]
+    logger.info(f"[{request_id}] 开始调用总结AI - 模型: {orchestra_state.selected_model}")
+    
+    try:
+        start_time = datetime.now()
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "http://localhost:11434/api/generate",
+                json={
+                    "model": orchestra_state.selected_model,
+                    "prompt": prompt,
+                    "stream": False
+                },
+                timeout=1000.0
+            )
+            
+            duration = (datetime.now() - start_time).total_seconds()
+            logger.info(f"[{request_id}] 总结API调用耗时: {duration:.2f}秒")
+            
+            if response.status_code == 200:
+                result = response.json()
+                response_text = result.get("response", "")
+                
+                logger.info(f"[{request_id}] 总结生成成功，长度: {len(response_text)}字符")
+                return response_text
+            else:
+                error_msg = f"总结AI调用失败: {response.status_code}"
+                logger.error(f"[{request_id}] {error_msg}")
+                return None
+                
+    except Exception as e:
+        error_msg = f"调用总结AI时发生错误: {str(e)}"
+        logger.error(f"[{request_id}] {error_msg}", exc_info=True)
+        return None
+
 async def call_ollama_api(prompt: str, role: RoleType, include_context: bool = True) -> Optional[str]:
     request_id = str(uuid.uuid4())[:8]
     logger.info(f"[{request_id}] 开始Ollama API调用 - 角色: {role.value}, 模型: {orchestra_state.selected_model}")
     
     try:
+        # 如果是有角色的AI（不是ETHER总结AI），先生成/更新总结
+        if role != RoleType.ETHER and len(orchestra_state.messages) > 0:
+            await ensure_summary_updated()
+        
         ether_message = Message(
             id=str(uuid.uuid4()),
             role=RoleType.ETHER,
@@ -686,6 +695,26 @@ async def handle_post_requirement_input(content: str):
         )
         await broadcast_message(guidance_message)
 
+
+def get_messages_since_last_summary() -> List[Message]:
+    """获取自上次总结后的所有消息"""
+    if not orchestra_state.conversation_summaries:
+        return orchestra_state.messages
+    
+    # 找到最后一次总结的时间标记
+    last_summary_time = None
+    for msg in reversed(orchestra_state.messages):
+        if (msg.role == RoleType.ETHER and 
+            msg.message_type == MessageType.SYSTEM_INFO and
+            "已生成对话总结" in msg.content):
+            last_summary_time = msg.timestamp
+            break
+    
+    if last_summary_time:
+        return [msg for msg in orchestra_state.messages if msg.timestamp > last_summary_time]
+    else:
+        return orchestra_state.messages
+
 def is_conversation_endpoint(message: Message) -> bool:
     """判断是否是对话结束点"""
     # 对话结束的标志：
@@ -769,10 +798,19 @@ async def auto_trigger_architect_ai(requirement_summary: str):
         )
         await broadcast_message(error_message)
 
+async def ensure_summary_updated():
+    """确保总结是最新的，如果需要则生成新总结"""
+    messages_since_last_summary = get_messages_since_last_summary()
+    
+    # 如果没有总结，或自上次总结后有新消息，则生成新总结
+    if not orchestra_state.conversation_summaries or len(messages_since_last_summary) > 0:
+        logger.info("检测到需要更新总结，开始生成...")
+        await generate_conversation_summary()
+
 async def generate_conversation_summary():
     """生成对话总结"""
     try:
-        if len(orchestra_state.messages) < 5:  # 消息太少不需要总结
+        if len(orchestra_state.messages) < 4:  # 消息太少不需要总结
             return
             
         logger.info("开始生成对话总结")
@@ -813,39 +851,44 @@ async def generate_conversation_summary():
             timestamp = msg.timestamp.strftime("%H:%M:%S")
             messages_text.append(f"[{timestamp}] {role_name}: {msg.content}")
         
-        summary_prompt = f"""
-你是一个专业的对话总结AI，需要为多AI协作平台生成高质量的对话总结。
+        # 检查是否有之前的总结，如果有，则生成增量总结
+        previous_summary = ""
+        if orchestra_state.conversation_summaries:
+            latest_summary = list(orchestra_state.conversation_summaries.values())[-1]
+            previous_summary = f"""
+之前的对话总结：
+{latest_summary}
 
-对话内容：
+---
+"""
+
+        summary_prompt = f"""
+你是一个专业的对话总结AI，需要为多AI协作系统生成简洁有效的对话总结。这个总结将作为AI对话时的上下文，而不是完整的聊天历史。
+
+{previous_summary}
+本次新增对话内容：
 {chr(10).join(messages_text)}
 
+总结目标：
+生成一个简洁但信息完整的总结，用于替代完整的聊天历史，让AI能够理解：
+1. **当前项目状态**：需求确认情况、设计进展、开发状态
+2. **关键技术决策**：架构选择、技术栈、设计原则
+3. **重要约束条件**：用户要求、技术限制、业务规则
+4. **待解决问题**：当前阻塞点、需要澄清的问题
+5. **下一步行动**：明确的后续任务和责任分工
+
 总结要求：
-1. **核心需求和决策**：提取所有明确的需求、用户决策、确认信息
-2. **技术要点**：保留架构设计、接口规范、实现细节、约束条件
-3. **工作流程**：记录各AI角色的工作状态、已完成的任务、待办事项
-4. **关键结论**：保留重要的分析结果、设计决定、问题解决方案
-5. **用户反馈**：保留用户的修改意见、指导建议、满意度表达
+- 保持客观事实，避免冗余描述
+- 突出核心信息，忽略客套话
+- 使用清晰的结构化格式
+- 确保AI能基于此总结继续协作
+- 总结长度控制在500字以内
 
-总结格式：
-【需求要点】：...
-【技术决策】：...
-【工作进展】：...
-【关键结论】：...
-【用户指导】：...
-【下步行动】：...
-
-注意事项：
-- 保持客观中性，不添加主观判断
-- 使用简洁但信息完整的表达
-- 去除客套话但保留所有实质性内容
-- 按逻辑顺序而非时间顺序组织信息
-- 确保总结能够为后续对话提供有效上下文
-
-请提供结构化总结：
+请生成结构化总结：
 """
         
-        # 调用AI生成总结
-        summary = await call_ollama_api(summary_prompt, RoleType.ETHER, include_context=False)
+        # 调用AI生成总结（总结AI需要特殊的上下文处理）
+        summary = await call_ollama_api_for_summary(summary_prompt)
         
         if summary:
             # 保存总结
@@ -855,23 +898,23 @@ async def generate_conversation_summary():
             logger.info(f"对话总结生成成功，保存为 {summary_key}")
             logger.info(f"总结内容: {summary}")
             
-            # 发送总结完成的系统消息
-            summary_message = Message(
+            # 将总结内容作为ETHER消息展示在界面上
+            summary_display_message = Message(
                 id=str(uuid.uuid4()),
                 role=RoleType.ETHER,
                 message_type=MessageType.SYSTEM_INFO,
-                content=f"📋 已生成对话总结 (消息数: {len(orchestra_state.messages)})",
+                content=f"📋 **对话总结**\n\n{summary}",
                 timestamp=datetime.now()
             )
             # 注意：这里不能调用broadcast_message，会导致递归
-            orchestra_state.messages.append(summary_message)
+            orchestra_state.messages.append(summary_display_message)
             
-            # 直接发送给客户端
+            # 直接发送给客户端展示总结内容
             for websocket in orchestra_state.websocket_connections:
                 try:
                     await websocket.send_text(json.dumps({
                         "type": "new_message",
-                        "message": summary_message.model_dump(mode="json")
+                        "message": summary_display_message.model_dump(mode="json")
                     }))
                 except:
                     pass
@@ -1024,7 +1067,7 @@ async def get_conversation_summaries():
 @app.post("/api/generate_summary")
 async def manual_generate_summary():
     """手动触发对话总结"""
-    if len(orchestra_state.messages) < 5:
+    if len(orchestra_state.messages) < 3:
         return {"status": "error", "message": "消息数量太少，无需总结"}
     
     import asyncio
