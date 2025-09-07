@@ -11,11 +11,8 @@ class OrchestraAI {
             interface_ai: 0,
             programmer_ai: 0
         };
-        this.activeColumn = null;
         this.userSelectedColumn = null; // 用户手动选择的列
         this.lastMessageColumn = null;  // 最后一次有消息的列
-        this.lastActivityTime = {};
-        this.activityTimeout = null;
         this.isComposing = false; // 用于跟踪输入法状态
         
         this.init();
@@ -541,13 +538,6 @@ class OrchestraAI {
     }
     
     setLastMessageColumn(role) {
-        const currentTime = Date.now();
-        this.lastActivityTime[role] = currentTime;
-        
-        // 清除之前的超时
-        if (this.activityTimeout) {
-            clearTimeout(this.activityTimeout);
-        }
         
         // 更新最新消息列
         this.lastMessageColumn = role;
@@ -561,26 +551,6 @@ class OrchestraAI {
                 column.classList.remove('recently-active');
             }, 2000);
         }
-    }
-    
-    resetLastMessageColumn() {
-        this.lastMessageColumn = null;
-        this.updateColumnLayout();
-        
-        // 移除最新消息活跃状态
-        document.querySelectorAll('.column').forEach(column => {
-            column.classList.remove('message-active');
-        });
-    }
-    
-    clearUserSelection() {
-        this.userSelectedColumn = null;
-        this.updateColumnLayout();
-        
-        // 移除用户选择状态
-        document.querySelectorAll('.column').forEach(column => {
-            column.classList.remove('user-selected');
-        });
     }
     
     updateColumnLayout() {
