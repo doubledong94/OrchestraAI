@@ -221,8 +221,11 @@ class OrchestraAI {
         
         // 检查是否为AI生成的消息（非human角色）且内容包含markdown标记
         if (messageData.role !== 'human' && this.containsMarkdown(messageData.content)) {
-            // 渲染markdown内容
-            contentDiv.innerHTML = marked.parse(messageData.content);
+            // 渲染markdown内容并清理多余空白
+            let parsedContent = marked.parse(messageData.content);
+            // 移除HTML标签间的多余空白字符
+            parsedContent = parsedContent.replace(/>\s+</g, '><').trim();
+            contentDiv.innerHTML = parsedContent;
         } else {
             // 普通文本内容
             contentDiv.textContent = messageData.content;
@@ -348,8 +351,11 @@ class OrchestraAI {
         
         // 检查是否为AI生成的消息（非human角色）且内容包含markdown标记
         if (messageData.role !== 'human' && this.containsMarkdown(messageData.content)) {
-            // 渲染markdown内容
-            contentDiv.innerHTML = marked.parse(messageData.content);
+            // 渲染markdown内容并清理多余空白
+            let parsedContent = marked.parse(messageData.content);
+            // 移除HTML标签间的多余空白字符
+            parsedContent = parsedContent.replace(/>\s+</g, '><').trim();
+            contentDiv.innerHTML = parsedContent;
         } else {
             // 普通文本内容
             contentDiv.textContent = messageData.content;
