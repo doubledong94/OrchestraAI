@@ -59,11 +59,8 @@ class Message(BaseModel):
 class OrchestraState:
     def __init__(self):
         self.messages: List[Message] = []
-        self.current_requirement: Optional[str] = None
         self.websocket_connections: List[WebSocket] = []
         self.selected_model: str = "gpt-oss:20b"  # 默认模型
-        self.max_context_messages: int = 20  # 最大上下文消息数量
-        self.max_context_length: int = 8000  # 最大上下文字符长度
         self.conversation_summaries: Dict[str, str] = {}  # 各阶段的对话总结
 
     def get_context_for_role(self, role: RoleType, max_messages: Optional[int] = None) -> str:
@@ -78,125 +75,17 @@ class OrchestraState:
             logger.info(f"为角色 {role.value} 提供空上下文（无总结）")
             return ""
 
-    def get_current_conversation_messages_for_role(self, role: RoleType) -> List[Message]:
-        """获取当前对话段落的消息（自最后一次总结后）"""
-        if not self.conversation_summaries:
-            # 如果没有总结，返回所有消息
-            return self.get_recent_messages_for_role(role, len(self.messages))
-
-        # 找到最后一次总结后的消息
-        last_summary_time = None
-        if self.conversation_summaries:
-            # 寻找最后一个总结生成时间的标记
-            for msg in reversed(self.messages):
-                if (msg.role == RoleType.ETHER and
-                    msg.message_type == MessageType.SYSTEM_INFO and
-                    "已生成对话总结" in msg.content):
-                    last_summary_time = msg.timestamp
-                    break
-
-        if last_summary_time:
-            # 返回最后总结时间之后的消息
-            current_messages = []
-            for msg in self.messages:
-                if msg.timestamp > last_summary_time:
-                    current_messages.append(msg)
-            return self.filter_messages_by_role_relevance(current_messages, role)
-        else:
-            # 如果没找到总结时间标记，返回最近的消息
-            return self.get_recent_messages_for_role(role, self.max_context_messages)
-
-    def filter_messages_by_role_relevance(self, messages: List[Message], role: RoleType) -> List[Message]:
-        """根据角色相关性过滤消息"""
-        if role == RoleType.PRODUCT_AI:
-            return [msg for msg in messages if msg.role in [RoleType.HUMAN, RoleType.PRODUCT_AI, RoleType.ETHER]]
-        elif role == RoleType.ARCHITECT_AI:
-            return [msg for msg in messages if msg.role in [RoleType.HUMAN, RoleType.PRODUCT_AI, RoleType.ARCHITECT_AI, RoleType.ETHER]]
-        elif role == RoleType.INTERFACE_AI:
-            return [msg for msg in messages if msg.role in [RoleType.HUMAN, RoleType.PRODUCT_AI, RoleType.ARCHITECT_AI, RoleType.INTERFACE_AI, RoleType.ETHER]]
-        elif role == RoleType.PROGRAMMER_AI:
-            return [msg for msg in messages if msg.message_type != MessageType.SYSTEM_INFO or msg.role == RoleType.ETHER]
-        else:
-            return messages
-
-    def get_recent_messages_for_role(self, role: RoleType, max_count: int) -> List[Message]:
-        """获取角色相关的最近消息"""
-        relevant_messages = []
-
-        # 根据角色类型选择不同的消息范围
-        if role == RoleType.PRODUCT_AI:
-            # 产品AI需要看到：人类输入 + 自己的历史回复
-            for msg in reversed(self.messages):
-                if (msg.role == RoleType.HUMAN or
-                    msg.role == RoleType.PRODUCT_AI):
-                    relevant_messages.insert(0, msg)
-                if len(relevant_messages) >= max_count:
-                    break
-
-        elif role == RoleType.ARCHITECT_AI:
-            # 架构AI需要看到：人类输入 + 产品AI的分析 + 自己的历史回复
-            for msg in reversed(self.messages):
-                if (msg.role == RoleType.HUMAN or
-                    msg.role == RoleType.PRODUCT_AI or
-                    msg.role == RoleType.ARCHITECT_AI):
-                    relevant_messages.insert(0, msg)
-                if len(relevant_messages) >= max_count:
-                    break
-
-        elif role == RoleType.INTERFACE_AI:
-            # 接口AI需要看到：人类输入 + 产品AI分析 + 架构AI设计 + 自己的历史回复
-            for msg in reversed(self.messages):
-                if (msg.role == RoleType.HUMAN or
-                    msg.role == RoleType.PRODUCT_AI or
-                    msg.role == RoleType.ARCHITECT_AI or
-                    msg.role == RoleType.INTERFACE_AI):
-                    relevant_messages.insert(0, msg)
-                if len(relevant_messages) >= max_count:
-                    break
-
-        elif role == RoleType.PROGRAMMER_AI:
-            # 程序员AI需要看到：全部相关消息（除了系统消息）
-            for msg in reversed(self.messages):
-                if msg.message_type != MessageType.SYSTEM_INFO:
-                    relevant_messages.insert(0, msg)
-                if len(relevant_messages) >= max_count:
-                    break
-        else:
-            # 默认情况：所有最近消息
-            relevant_messages = self.messages[-max_count:]
-
-        return relevant_messages
-
-    def get_compressed_context_for_role(self, role: RoleType) -> str:
-        """获取压缩的上下文（仅总结 + 最关键的最近消息）"""
-        context_parts = []
-
-        # 添加最新的总结
-        if self.conversation_summaries:
-            latest_summary = list(self.conversation_summaries.values())[-1]
-            context_parts.append(f"【对话总结】{latest_summary}")
-            context_parts.append("---")
-
-        # 只添加最关键的最近消息（最后3-5条）
-        key_messages = self.get_recent_messages_for_role(role, 5)
-        for msg in key_messages[-3:]:  # 只取最后3条
-            role_name = self.get_role_display_name(msg.role)
-            timestamp = msg.timestamp.strftime("%H:%M:%S")
-            context_parts.append(f"[{timestamp}] {role_name}: {msg.content}")
-
-        return "\n".join(context_parts)
-
-    def get_role_display_name(self, role: RoleType) -> str:
-        """获取角色显示名称"""
-        role_names = {
-            RoleType.HUMAN: "人类用户",
-            RoleType.ETHER: "系统",
-            RoleType.PRODUCT_AI: "产品AI",
-            RoleType.ARCHITECT_AI: "架构AI",
-            RoleType.INTERFACE_AI: "接口AI",
-            RoleType.PROGRAMMER_AI: "程序员AI"
-        }
-        return role_names.get(role, role.value)
+def get_role_display_name(role: RoleType) -> str:
+    """获取角色显示名称"""
+    role_names = {
+        RoleType.HUMAN: "人类用户",
+        RoleType.ETHER: "系统",
+        RoleType.PRODUCT_AI: "产品AI",
+        RoleType.ARCHITECT_AI: "架构AI",
+        RoleType.INTERFACE_AI: "接口AI",
+        RoleType.PROGRAMMER_AI: "程序员AI"
+    }
+    return role_names.get(role, role.value)
 
 orchestra_state = OrchestraState()
 
@@ -558,7 +447,7 @@ async def generate_conversation_summary():
             # 跳过以太(系统)的消息，只保留实际对话
             if msg.role == RoleType.ETHER:
                 continue
-            role_name = orchestra_state.get_role_display_name(msg.role)
+            role_name = get_role_display_name(msg.role)
             timestamp = msg.timestamp.strftime("%H:%M:%S")
             messages_text.append(f"[{timestamp}] {role_name}: {msg.content}")
 
