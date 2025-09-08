@@ -1,4 +1,5 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from contextlib import asynccontextmanager
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,7 +13,12 @@ import uuid
 from enum import Enum
 import logging
 
-app = FastAPI(title="OrchestraAI", description="Multi-AI Collaboration Platform")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await orchestra_state.initialize_model()
+    yield
+
+app = FastAPI(title="OrchestraAI", description="Multi-AI Collaboration Platform", lifespan=lifespan)
 
 # 配置日志
 logging.basicConfig(
@@ -67,8 +73,27 @@ class OrchestraState:
     def __init__(self):
         self.messages: List[Message] = []
         self.websocket_connections: List[WebSocket] = []
-        self.selected_model: str = "gpt-oss:20b"  # 默认模型
+        self.selected_model: str = ""
         self.conversation_summaries: Dict[str, str] = {}  # 各阶段的对话总结
+        
+    async def initialize_model(self):
+        """初始化选择第一个可用模型"""
+        if not self.selected_model:
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.get("http://localhost:11434/api/tags", timeout=10.0)
+                    if response.status_code == 200:
+                        data = response.json()
+                        models = [model["name"] for model in data.get("models", [])]
+                        if models:
+                            self.selected_model = models[0]
+                            logger.info(f"自动选择第一个可用模型: {self.selected_model}")
+                        else:
+                            logger.warning("未找到可用的模型")
+                    else:
+                        logger.error(f"获取模型列表失败: {response.status_code}")
+            except Exception as e:
+                logger.error(f"初始化模型时发生错误: {str(e)}")
 
     def get_context_for_role(self, role: RoleType, max_messages: Optional[int] = None) -> str:
         """获取特定角色的对话上下文（只使用总结）"""
