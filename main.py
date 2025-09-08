@@ -12,6 +12,8 @@ from datetime import datetime
 import uuid
 from enum import Enum
 import logging
+import socket
+import random
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -632,9 +634,38 @@ async def serve_frontend():
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+def is_port_available(port: int) -> bool:
+    """检查端口是否可用"""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(('0.0.0.0', port))
+            return True
+    except OSError:
+        return False
+
+def find_available_port(start_port: int = 8000, max_attempts: int = 100) -> int:
+    """查找可用的随机端口"""
+    # 先尝试默认端口
+    if is_port_available(start_port):
+        return start_port
+    
+    # 如果默认端口不可用，随机选择端口
+    for _ in range(max_attempts):
+        port = random.randint(8000, 9999)
+        if is_port_available(port):
+            return port
+    
+    # 如果随机端口都不可用，使用系统分配
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(('0.0.0.0', 0))
+        return sock.getsockname()[1]
+
 if __name__ == "__main__":
     import uvicorn
     logger.info("启动OrchestraAI多AI协作平台")
     logger.info(f"默认选择模型: {orchestra_state.selected_model}")
-    logger.info("服务器将在 http://0.0.0.0:8000 启动")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    
+    port = find_available_port()
+    logger.info(f"找到可用端口: {port}")
+    logger.info(f"服务器将在 http://0.0.0.0:{port} 启动")
+    uvicorn.run(app, host="0.0.0.0", port=port)
