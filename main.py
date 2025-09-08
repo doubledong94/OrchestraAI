@@ -49,13 +49,6 @@ class RoleType(str, Enum):
     INTERFACE_AI = "interface_ai"
     PROGRAMMER_AI = "programmer_ai"
 
-class TalkTo(str, Enum):
-    TO_HUMAN = 'to_human'
-    TO_SUMMARY = 'to_summary'
-    TO_ARCHITECT = 'to_architect'
-    TO_INTERFACE = 'to_interface'
-    TO_PROGRAMMER = 'to_programmer'
-
 class MessageType(str, Enum):
     USER_INPUT = "user_input"
     AI_RESPONSE = "ai_response"
@@ -123,42 +116,81 @@ def get_role_display_name(role: RoleType) -> str:
 
 orchestra_state = OrchestraState()
 
+class TalkAbout(str, Enum):
+    ASK_WHY = 'ask_why'
+    EXPLAIN_WHY = 'explain_why'
+    ABOUT_HOW = 'about_how'
+    ABOUT_WHAT = 'about_what'
+    ABOUT_DISCRIMINATION = 'about_discrimination'
+    ABOUT_REFLECT = 'about_reflect'
+    JUDGE = 'judge'
+
 AI_PROMPTS = {
     RoleType.PRODUCT_AI: {
-        TalkTo.TO_HUMAN: '''
+        TalkAbout.ASK_WHY: '''
+# 推测用户为什么有这个需求
+用户提出了一个需求，我们的第一步就是要分析这个需求解决用户的什么痛点。不要直接向用户提问为什么有这个需求，而是要不停猜测痛点，直到用户认同。
+''',
+        TalkAbout.EXPLAIN_WHY: '''
 
 ''',
-        TalkTo.TO_SUMMARY: '''
+        TalkAbout.ABOUT_HOW: '''
 
-'''},
-# 你是产品AI，负责需求分析和产品设计。你的职责包括：
-#
-# **第一阶段 - 需求收集**：
-# 1. 收到人类的初始需求后，向人类提出具体的问题来明确需求细节
-# 2. 问题要具体，最好是选择题，避免模糊问题
-# 3. 明确需求的哪些方面是人类在乎的，哪些是无所谓的
-# 4. 每次回复都要评估：是否已经收集到足够的信息来设计产品
-#
-# **第二阶段 - 需求确认与总结**：
-# 当你认为已经收集到足够信息时，必须：
-# 1. 明确声明："基于我们的对话，我认为已经收集到足够的产品需求信息"
-# 2. 提供完整的需求总结，包括：
-#    - 核心功能需求
-#    - 用户角色和权限
-#    - 关键业务流程
-#    - 技术要求和约束
-#    - 优先级说明
-# 3. 询问用户："请确认以上需求总结是否完整准确？如果确认无误，我将把需求移交给架构AI进行技术设计。"
-#
-# **重要原则**：
-# - 不要无限制地问问题，通常3-5轮对话应该能收集到基本信息
-# - 要主动判断何时信息已经足够进行产品设计
-# - 如果遇到无法解决的问题，及时上报给人类
-# - 用专业但易懂的语言与人类沟通
-#
-# **回复格式指导**：
-# - 如果还需要更多信息，继续提问
-# - 如果信息足够，使用"【需求确认】"标记开始需求总结
+''',
+        TalkAbout.ABOUT_WHAT: '''
+''',
+        TalkAbout.ABOUT_REFLECT: '''
+''',
+        TalkAbout.ABOUT_DISCRIMINATION: '''
+# 判断话语类型
+你会收到一条人类新输入的消息，请判断这条消息属于以下哪种类型的消息：
+- 1. 表达愿望，或者表达一个想法
+- 2. 表达对原因的疑问
+- 3. 表达对如何实现的疑问
+- 4. 表达对概念的疑问
+- 5. 表达肯定或者否定
+- 6. 提出一种不确定的建议
+- 7. 用户希望有更多同类的信息
+
+人类新输入的消息如下，请做判断，只返回选项数字，不要返回其他任何内容
+''',
+        'discrimination_map': {
+            '1': TalkAbout.ASK_WHY,
+            '2': TalkAbout.EXPLAIN_WHY,
+            '3': TalkAbout.ABOUT_HOW,
+            '4': TalkAbout.ABOUT_WHAT,
+            '5': TalkAbout.ABOUT_REFLECT,
+            '6': TalkAbout.JUDGE,
+        }
+    },
+    # 你是产品AI，负责需求分析和产品设计。你的职责包括：
+    #
+    # **第一阶段 - 需求收集**：
+    # 1. 收到人类的初始需求后，向人类提出具体的问题来明确需求细节
+    # 2. 问题要具体，最好是选择题，避免模糊问题
+    # 3. 明确需求的哪些方面是人类在乎的，哪些是无所谓的
+    # 4. 每次回复都要评估：是否已经收集到足够的信息来设计产品
+    #
+    # **第二阶段 - 需求确认与总结**：
+    # 当你认为已经收集到足够信息时，必须：
+    # 1. 明确声明："基于我们的对话，我认为已经收集到足够的产品需求信息"
+    # 2. 提供完整的需求总结，包括：
+    #    - 核心功能需求
+    #    - 用户角色和权限
+    #    - 关键业务流程
+    #    - 技术要求和约束
+    #    - 优先级说明
+    # 3. 询问用户："请确认以上需求总结是否完整准确？如果确认无误，我将把需求移交给架构AI进行技术设计。"
+    #
+    # **重要原则**：
+    # - 不要无限制地问问题，通常3-5轮对话应该能收集到基本信息
+    # - 要主动判断何时信息已经足够进行产品设计
+    # - 如果遇到无法解决的问题，及时上报给人类
+    # - 用专业但易懂的语言与人类沟通
+    #
+    # **回复格式指导**：
+    # - 如果还需要更多信息，继续提问
+    # - 如果信息足够，使用"【需求确认】"标记开始需求总结
 
     RoleType.ARCHITECT_AI: """
 你是架构AI，负责技术架构设计和任务分解。你的职责包括：
@@ -242,13 +274,30 @@ async def handle_human_input(content: str):
 
     await broadcast_message(message)
 
-    await trigger_product_ai(content)
+    discrimination = await trigger_discrimination_ai(content, RoleType.PRODUCT_AI)
 
-async def trigger_product_ai(user_input: str):
+    message = Message(
+        id=str(uuid.uuid4()),
+        role=RoleType.PRODUCT_AI,
+        message_type=MessageType.AI_RESPONSE,
+        content=discrimination + ' ' + AI_PROMPTS[RoleType.PRODUCT_AI]['discrimination_map'][discrimination],
+        timestamp=datetime.now()
+    )
+
+    await broadcast_message(message)
+
+    await trigger_product_ai(content, AI_PROMPTS[RoleType.PRODUCT_AI]['discrimination_map'][discrimination])
+
+async def trigger_discrimination_ai(user_input: str, role: RoleType):
+    prompt = f"""{AI_PROMPTS[role][TalkAbout.ABOUT_DISCRIMINATION]}\n{user_input}"""
+    response = await call_ollama_api(prompt, RoleType.PRODUCT_AI)
+    return response
+
+
+async def trigger_product_ai(user_input: str, about: TalkAbout):
     logger.info(f"触发产品AI分析用户需求: {user_input}")  # 完整记录
 
-    prompt = f"""
-{AI_PROMPTS[RoleType.PRODUCT_AI][TalkTo.TO_HUMAN]}
+    prompt = f"""{AI_PROMPTS[RoleType.PRODUCT_AI][about]}\n
 # 用户输入  \n{user_input}
 """
 
@@ -300,50 +349,19 @@ async def call_ollama_api(prompt: str, role: RoleType) -> Optional[str]:
     logger.info(f"[{request_id}] 开始Ollama API调用 - 角色: {role.value}, 模型: {orchestra_state.selected_model}")
 
     try:
-        # 构建完整的提示词（包含上下文）
-        full_prompt = prompt
-        context = orchestra_state.get_context_for_role(role)
-        if context:
-            full_prompt = f"""以下是相关的对话历史：
-
-            {context}
-
-            ---
-            
-            基于以上对话历史，请回应以下请求：
-            
-            {prompt}
-            
-            请确保你的回应考虑到之前的对话内容，保持连贯性。"""
-
-            context_stats = {
-                "total_messages": len(orchestra_state.messages),
-                "context_length": len(context),
-                "context_lines": len(context.split('\n')) if context else 0
-            }
-            logger.info(f"[{request_id}] 上下文统计: {json.dumps(context_stats, ensure_ascii=False)}")
-
         ether_message = Message(
             id=str(uuid.uuid4()),
             role=RoleType.ETHER,
             message_type=MessageType.SYSTEM_INFO,
-            content=full_prompt,
+            content=prompt,
             timestamp=datetime.now()
         )
         await broadcast_message(ether_message)
 
-        ether_message = Message(
-            id=str(uuid.uuid4()),
-            role=RoleType.ETHER,
-            message_type=MessageType.SYSTEM_INFO,
-            content=f"已调用{get_role_display_name(role)}，等待响应...",
-            timestamp=datetime.now()
-        )
-        await broadcast_message(ether_message)
         # 记录Ollama输入
         logger.info(f"[{request_id}] ===== OLLAMA输入 =============================")
         logger.info(f"[{request_id}] 模型: {orchestra_state.selected_model}")
-        logger.info(f"[{request_id}] 输入Prompt: {full_prompt}")
+        logger.info(f"[{request_id}] 输入Prompt: {prompt}")
         logger.info(f"[{request_id}] ================================================")
 
         start_time = datetime.now()
@@ -352,7 +370,7 @@ async def call_ollama_api(prompt: str, role: RoleType) -> Optional[str]:
                 "http://localhost:11434/api/generate",
                 json={
                     "model": orchestra_state.selected_model,
-                    "prompt": full_prompt,
+                    "prompt": prompt,
                     "stream": False
                 },
                 timeout=1000.0
