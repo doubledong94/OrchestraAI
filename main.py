@@ -278,7 +278,7 @@ async def handle_human_input(content: str):
 
     message = Message(
         id=str(uuid.uuid4()),
-        role=RoleType.PRODUCT_AI,
+        role=RoleType.ETHER,
         message_type=MessageType.AI_RESPONSE,
         content=discrimination + ' ' + AI_PROMPTS[RoleType.PRODUCT_AI]['discrimination_map'][discrimination],
         timestamp=datetime.now()
@@ -344,6 +344,29 @@ async def trigger_architect_ai(requirement: str):
     else:
         logger.error("架构AI方案设计失败")
 
+def get_chat_messages_since_last_summary() -> List[Dict[str, str]]:
+    """获取自上次总结后的所有消息，格式化为chat格式"""
+    messages_since_summary = get_messages_since_last_summary()
+    
+    chat_messages = []
+    for msg in messages_since_summary:
+        # 跳过系统消息(ETHER)
+        if msg.role == RoleType.ETHER:
+            continue
+            
+        # 将角色映射为chat格式
+        if msg.role == RoleType.HUMAN:
+            chat_role = "user"
+        else:
+            chat_role = "assistant"
+            
+        chat_messages.append({
+            "role": chat_role,
+            "content": f"[{get_role_display_name(msg.role)}] {msg.content}"
+        })
+    
+    return chat_messages
+
 async def call_ollama_api(prompt: str, role: RoleType) -> Optional[str]:
     request_id = str(uuid.uuid4())[:8]
     logger.info(f"[{request_id}] 开始Ollama API调用 - 角色: {role.value}, 模型: {orchestra_state.selected_model}")
@@ -358,19 +381,29 @@ async def call_ollama_api(prompt: str, role: RoleType) -> Optional[str]:
         )
         await broadcast_message(ether_message)
 
+        # 获取对话历史
+        chat_messages = get_chat_messages_since_last_summary()
+        
+        # 构建chat格式的消息
+        messages = [
+            {"role": "system", "content": prompt}
+        ]
+        messages.extend(chat_messages)
+
         # 记录Ollama输入
         logger.info(f"[{request_id}] ===== OLLAMA输入 =============================")
         logger.info(f"[{request_id}] 模型: {orchestra_state.selected_model}")
-        logger.info(f"[{request_id}] 输入Prompt: {prompt}")
+        logger.info(f"[{request_id}] 系统Prompt: {prompt}")
+        logger.info(f"[{request_id}] 对话历史消息数: {len(chat_messages)}")
         logger.info(f"[{request_id}] ================================================")
 
         start_time = datetime.now()
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                "http://localhost:11434/api/generate",
+                "http://localhost:11434/api/chat",
                 json={
                     "model": orchestra_state.selected_model,
-                    "prompt": prompt,
+                    "messages": messages,
                     "stream": False
                 },
                 timeout=1000.0
@@ -381,7 +414,7 @@ async def call_ollama_api(prompt: str, role: RoleType) -> Optional[str]:
 
             if response.status_code == 200:
                 result = response.json()
-                response_text = result.get("response", "")
+                response_text = result.get("message", {}).get("content", "")
 
                 # 记录响应详情（完整版本）
                 logger.info(f"[{request_id}] ===== OLLAMA输出 =============================")
